@@ -13,6 +13,9 @@ export type GameId =
   | "musicalchairs"
   | "present"
   | "prophunt"
+  | "chutesladders"
+  | "simonsays"
+  | "keepyuppy"
   | "koth";
 
 export type RoomPhase =
@@ -121,6 +124,10 @@ export interface SeriesResult {
 export interface Snapshot {
   game: GameId;
   t: number; // server tick time (ms)
+  // Server epoch ms when play unfreezes. Present only during the pre-round
+  // "3·2·1·GO" hold (the board is shown but logic/input are frozen); absent
+  // once the game is live.
+  startAt?: number;
   // Generic actor list used by most arena games (movement/combat).
   actors?: Actor[];
   // Per-game payload.

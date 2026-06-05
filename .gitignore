@@ -11,4 +11,5 @@ build
 data/*.db
 data/*.db-*
 next-env.d.ts
+tsconfig.tsbuildinfo
 .vercel

@@ -19,6 +19,7 @@ import {
   TICK_MS,
   placementTitle,
   MIN_TO_START,
+  MAX_PLAYERS,
   CURRENCY_ICON,
 } from "../shared/constants";
 import { makeRng, pick, botName, makeId, MAX_PLAYER_NUMBER, clamp, type Rng } from "../shared/util";
@@ -28,6 +29,10 @@ import type { Minigame, GameContext } from "./games/Minigame";
 import { recordSeries, type SeriesReward } from "./db";
 
 const INTRO_MS = 5400;
+// After the reveal, the board is shown frozen for this long while a "3·2·1·GO"
+// counts down on the field — gives everyone a beat to find their blob before
+// anything can move or die. Game logic and input are held until it elapses.
+const GO_MS = 3200;
 const RESULT_MS = 6000;
 const SERIES_RESULT_MS = 30000;
 const BOT_FILL_TARGET = 6;
@@ -57,6 +62,7 @@ export class GameRoom {
   private seriesResult?: SeriesResult;
 
   private introEndsAt = 0;
+  private playStartsAt = 0; // server epoch ms when the pre-round GO countdown ends
   private resultEndsAt = 0;
   private seriesEndsAt = 0;
   private dirty = true;
@@ -216,7 +222,9 @@ export class GameRoom {
         if (p.id === this.hostId && this.phase === "seriesResult") this.toLobby();
         break;
       case "input":
-        if (this.phase === "playing" && this.game) this.game.onInput(p.id, msg.input);
+        // Ignore input during the pre-round GO hold — no jumping the gun.
+        if (this.phase === "playing" && this.game && Date.now() >= this.playStartsAt)
+          this.game.onInput(p.id, msg.input);
         break;
     }
   }
@@ -395,6 +403,9 @@ export class GameRoom {
     this.game = createMinigame(this.currentGame!, ctx);
     this.game.start();
     this.phase = "playing";
+    // Hold the round on a "3·2·1·GO" beat: the board renders in its starting
+    // pose but logic & input stay frozen until playStartsAt (see update/handle).
+    this.playStartsAt = Date.now() + GO_MS;
     this.pushMeta();
   }
 
@@ -559,9 +570,14 @@ export class GameRoom {
         break;
       case "playing":
         if (this.game) {
-          this.game.tick(TICK_MS / 1000, now);
-          this.broadcast({ t: "snapshot", snap: this.game.snapshot(now) });
-          if (this.game.isDone()) this.endRound();
+          const live = now >= this.playStartsAt;
+          if (live) this.game.tick(TICK_MS / 1000, now);
+          const snap = this.game.snapshot(now);
+          // While frozen, advertise when play begins so clients can run the
+          // on-field 3·2·1·GO countdown over the (still) starting positions.
+          if (!live) snap.startAt = this.playStartsAt;
+          this.broadcast({ t: "snapshot", snap });
+          if (live && this.game.isDone()) this.endRound();
         }
         break;
       case "roundResult":
@@ -585,6 +601,6 @@ function sanitizeConfig(c: Partial<RoomConfig>): Partial<RoomConfig> {
   if (typeof c.botFill === "boolean") out.botFill = c.botFill;
   if (typeof c.friendlyFire === "boolean") out.friendlyFire = c.friendlyFire;
   if (typeof c.nightMode === "boolean") out.nightMode = c.nightMode;
-  if (typeof c.maxPlayers === "number") out.maxPlayers = Math.max(2, Math.min(16, c.maxPlayers));
+  if (typeof c.maxPlayers === "number") out.maxPlayers = Math.max(2, Math.min(MAX_PLAYERS, c.maxPlayers));
   return out;
 }

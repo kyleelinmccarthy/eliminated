@@ -5,9 +5,11 @@ import { audio } from "@/lib/client/audio";
 import { recordGlassChoice } from "@/lib/client/glass";
 import type { GameId } from "@/lib/shared/types";
 import { ARENA_W, ARENA_H } from "@/lib/shared/constants";
+import { SIMON_COMMANDS, SIMON_FREEZE, simonByHotkey } from "@/lib/shared/simon";
+import { characterVariants } from "@/lib/shared/characters";
 import { BlobAvatar } from "./BlobAvatar";
 
-const MOVEMENT = new Set<GameId>(["redlight", "tag", "mingle", "boomerang", "dodgeball", "musicalchairs", "koth"]);
+const MOVEMENT = new Set<GameId>(["redlight", "tag", "mingle", "boomerang", "dodgeball", "musicalchairs", "keepyuppy", "koth"]);
 
 export function GameControls({ game }: { game: GameId }) {
   if (game === "prophunt") return <ProphuntControls />;
@@ -15,14 +17,17 @@ export function GameControls({ game }: { game: GameId }) {
   if (game === "glassbridge") return <GlassControls />;
   if (game === "tugofwar") return <MashControls label="PULL!" action="pull" color="pink" />;
   if (game === "jumprope") return <MashControls label="JUMP!" action="jump" color="teal" />;
+  if (game === "chutesladders") return <RollControls />;
   if (game === "rpsminusone") return <RpsControls />;
   if (game === "present") return <PresentControls />;
+  if (game === "simonsays") return <SimonControls />;
   return null;
 }
 
 // ---------------- movement (+ boomerang / dodgeball aim/throw/dash) ----------------
 function MovementControls({ game }: { game: GameId }) {
   const isThrow = game === "boomerang" || game === "dodgeball";
+  const isSpike = game === "keepyuppy";
 
   useEffect(() => {
     const keys = new Set<string>();
@@ -41,6 +46,11 @@ function MovementControls({ game }: { game: GameId }) {
       if (k === " " && isThrow) {
         net.input({ kind: "action", name: "throw" });
         audio.sfx("throw");
+        return;
+      }
+      if ((k === " " || k === "shift") && isSpike) {
+        net.input({ kind: "action", name: "spike" });
+        audio.sfx("whoosh");
         return;
       }
       if (k === "shift" && isThrow) {
@@ -131,8 +141,25 @@ function MovementControls({ game }: { game: GameId }) {
           </button>
         </div>
       )}
+      {isSpike && (
+        <div className="brawl-btns">
+          <button
+            className="rbtn spike"
+            onPointerDown={() => {
+              net.input({ kind: "action", name: "spike" });
+              audio.sfx("whoosh");
+            }}
+          >
+            📌<span>SPIKE</span>
+          </button>
+        </div>
+      )}
       <div className="hint">
-        {isThrow ? "WASD move · mouse aim · click/SPACE throw · SHIFT dash" : "WASD / Arrows to move"}
+        {isThrow
+          ? "WASD move · mouse aim · click/SPACE throw · SHIFT dash"
+          : isSpike
+            ? "WASD move under your balloon to bat it · SPACE / SPIKE to pop theirs"
+            : "WASD / Arrows to move"}
       </div>
       <style jsx>{`
         .brawl-btns {
@@ -168,6 +195,10 @@ function MovementControls({ game }: { game: GameId }) {
           box-shadow: 0 6px 0 #00838f;
           width: 74px;
           height: 74px;
+        }
+        .rbtn.spike {
+          background: radial-gradient(circle at 30% 30%, #ffe082, #ffb300);
+          box-shadow: 0 6px 0 #c87b00;
         }
         .rbtn:active {
           transform: translateY(4px);
@@ -542,6 +573,151 @@ function MashControls({ label, action, color }: { label: string; action: "pull" 
   );
 }
 
+// ---------------- chutes & ladders (roll the die) ----------------
+const ROLL_CD_MS = 700; // mirrors the server's per-roll cooldown
+function RollControls() {
+  const youId = useGame((s) => s.youId);
+  const [cd, setCd] = useState(0); // 1 = just rolled, 0 = ready
+  const [finished, setFinished] = useState(false);
+  const cdRef = useRef(0);
+  const finRef = useRef(false);
+
+  const roll = () => {
+    if (cdRef.current > 0 || finRef.current) return;
+    net.input({ kind: "tap" });
+    audio.sfx("drum");
+    cdRef.current = ROLL_CD_MS;
+    setCd(1);
+  };
+
+  // keyboard: SPACE rolls
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === " ") {
+        e.preventDefault();
+        roll();
+      }
+    };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, []);
+
+  // tick the local cooldown bar + watch for topping out
+  useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    const loop = (now: number) => {
+      const dt = now - last;
+      last = now;
+      if (cdRef.current > 0) {
+        cdRef.current = Math.max(0, cdRef.current - dt);
+        setCd(cdRef.current / ROLL_CD_MS);
+      }
+      const cur = snapBuffer.cur;
+      if (cur?.game === "chutesladders") {
+        const me = (cur.data as any)?.climbers?.find((c: any) => c.id === youId);
+        const fin = !!me?.finished;
+        if (fin !== finRef.current) {
+          finRef.current = fin;
+          setFinished(fin);
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [youId]);
+
+  const ready = cd <= 0 && !finished;
+  return (
+    <div className="roll">
+      <button className={`rollbtn ${ready ? "ready" : ""} ${finished ? "safe" : ""}`} onPointerDown={roll} disabled={finished}>
+        <span className="lbl">{finished ? "🏁 SAFE!" : "🎲 ROLL"}</span>
+        {!finished && <span className="cdfill" style={{ transform: `scaleX(${1 - cd})` }} />}
+      </button>
+      <div className="hint">
+        {finished ? "You scrambled to the top — enjoy the view." : "SMASH to roll · 🪜 up · 🐍 down · don't be last!"}
+      </div>
+      <style jsx>{`
+        .roll {
+          position: absolute;
+          bottom: 36px;
+          left: 50%;
+          transform: translateX(-50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+        }
+        .rollbtn {
+          position: relative;
+          overflow: hidden;
+          width: 210px;
+          height: 120px;
+          border-radius: 26px;
+          border: 4px solid #fff4;
+          font-family: var(--font-display);
+          font-size: 2.2rem;
+          font-weight: 800;
+          color: #fff;
+          background: radial-gradient(circle at 30% 25%, #ffd36b, #e8930f);
+          box-shadow: 0 8px 0 #9c5f06;
+          user-select: none;
+          touch-action: none;
+        }
+        .rollbtn .lbl {
+          position: relative;
+          z-index: 2;
+          text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+        }
+        .rollbtn.ready {
+          background: radial-gradient(circle at 30% 25%, #aef5b5, #2bb84d);
+          box-shadow: 0 8px 0 #157a2e;
+          animation: rollPulse 1.1s ease-in-out infinite;
+        }
+        .rollbtn.safe {
+          background: radial-gradient(circle at 30% 25%, #7defff, #00bcd4);
+          box-shadow: 0 8px 0 #00838f;
+          opacity: 0.85;
+        }
+        .rollbtn:active {
+          transform: translateY(6px);
+          box-shadow: 0 2px 0 #9c5f06;
+        }
+        .cdfill {
+          position: absolute;
+          left: 0;
+          bottom: 0;
+          width: 100%;
+          height: 7px;
+          transform-origin: left;
+          background: #fff;
+          opacity: 0.85;
+          z-index: 1;
+        }
+        @keyframes rollPulse {
+          0%,
+          100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.04);
+          }
+        }
+        .hint {
+          font-size: 0.85rem;
+          color: var(--ink-dim);
+          background: rgba(0, 0, 0, 0.35);
+          padding: 4px 12px;
+          border-radius: 10px;
+          text-align: center;
+          max-width: 92vw;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ---------------- RPS minus one ----------------
 const THROW_LABEL: Record<string, string> = { R: "✊ Rock", P: "✋ Paper", S: "✌️ Scissors" };
 function RpsControls() {
@@ -709,6 +885,7 @@ function PresentControls() {
 
   const players = room?.players || [];
   const pinfo = (id: string) => players.find((p) => p.id === id);
+  const variants = characterVariants(players);
 
   function choose(id: string) {
     if (picked) return;
@@ -734,7 +911,7 @@ function PresentControls() {
                   disabled={!!picked}
                   onClick={() => choose(id)}
                 >
-                  <BlobAvatar characterId={p?.characterId || "avo"} size={46} />
+                  <BlobAvatar characterId={p?.characterId || "avo"} size={46} variant={variants.get(id) ?? 0} />
                   <span>{p?.name || "???"}</span>
                 </button>
               );
@@ -806,6 +983,178 @@ function PresentControls() {
         }
         .present-btn:active {
           transform: translateY(2px);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ---------------- simon says (obey the order, or freeze) ----------------
+function SimonControls() {
+  const [phase, setPhase] = useState("ready");
+  const [freeze, setFreeze] = useState(false);
+  const [pressed, setPressed] = useState<string | null>(null);
+  const beatRef = useRef(-1);
+  const phaseRef = useRef("ready");
+  const pressedRef = useRef<string | null>(null);
+
+  // poll the snapshot so we can lock exactly one input per order (and reset on
+  // each new beat). The server is the authority; this is just for feel.
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const cur = snapBuffer.cur;
+      if (!cur || cur.game !== "simonsays") return;
+      const d: any = cur.data || {};
+      if (d.beat !== beatRef.current) {
+        beatRef.current = d.beat;
+        pressedRef.current = null;
+        setPressed(null);
+      }
+      phaseRef.current = d.phase;
+      setPhase(d.phase);
+      setFreeze(!!d.freeze);
+    }, 80);
+    return () => clearInterval(iv);
+  }, []);
+
+  const press = (key: string) => {
+    if (phaseRef.current !== "call") return; // window isn't open
+    if (pressedRef.current) return; // already answered this order
+    pressedRef.current = key;
+    setPressed(key);
+    net.input({ kind: "choose", value: key });
+    audio.sfx("blip");
+  };
+
+  // keyboard: W / A / S / D + SPACE → the matching order
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const raw = e.key === " " || e.key === "Spacebar" ? " " : e.key.toLowerCase();
+      const cmd = simonByHotkey(raw);
+      if (!cmd) return;
+      e.preventDefault();
+      press(cmd.key);
+    };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, []);
+
+  const open = phase === "call";
+  const status =
+    phase === "ready"
+      ? "👂 Simon says…"
+      : freeze
+        ? "🧊 FREEZE — hands OFF!"
+        : open
+          ? pressed
+            ? "Locked in! 🤞"
+            : "GO — do it NOW!"
+          : "…";
+
+  return (
+    <div className={`simon-ctl ${freeze && open ? "danger" : ""}`}>
+      <div className="simon-status">{status}</div>
+      <div className="simon-row">
+        {SIMON_COMMANDS.map((c) => (
+          <button
+            key={c.key}
+            className={`simon-btn ${pressed === c.key ? "sel" : ""}`}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              press(c.key);
+            }}
+          >
+            <span className="simon-emoji">{c.emoji}</span>
+            <span className="simon-label">{c.short}</span>
+            <span className="simon-key">{c.keyLabel}</span>
+          </button>
+        ))}
+      </div>
+      <div className="simon-hint">
+        {SIMON_FREEZE.emoji} <strong>FREEZE</strong> means touch nothing — a wrong move, a fumble, or one twitch and
+        you&apos;re boxed.
+      </div>
+      <style jsx>{`
+        .simon-ctl {
+          position: absolute;
+          bottom: 22px;
+          left: 50%;
+          transform: translateX(-50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          background: rgba(0, 0, 0, 0.42);
+          border: 2px solid var(--line);
+          border-radius: 18px;
+          padding: 12px 18px 10px;
+          max-width: 96vw;
+        }
+        .simon-ctl.danger {
+          border-color: var(--red);
+          box-shadow: 0 0 0 2px rgba(255, 46, 90, 0.25), 0 0 26px rgba(255, 46, 90, 0.35);
+        }
+        .simon-status {
+          font-family: var(--font-display);
+          font-weight: 800;
+          font-size: 1.05rem;
+          color: #fff;
+        }
+        .simon-ctl.danger .simon-status {
+          color: #ff8fb3;
+        }
+        .simon-row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+        .simon-btn {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 2px;
+          min-width: 78px;
+          padding: 8px 10px 6px;
+          border-radius: 14px;
+          border: 2px solid var(--line-bright);
+          background: rgba(255, 79, 154, 0.16);
+          color: #fff;
+          font-family: var(--font-display);
+          font-weight: 700;
+          user-select: none;
+          touch-action: none;
+        }
+        .simon-btn:active {
+          transform: translateY(3px);
+        }
+        .simon-btn.sel {
+          border-color: var(--yellow);
+          background: rgba(255, 213, 79, 0.24);
+        }
+        .simon-emoji {
+          font-size: 1.7rem;
+          line-height: 1;
+        }
+        .simon-label {
+          font-size: 0.74rem;
+        }
+        .simon-key {
+          font-size: 0.62rem;
+          color: var(--ink-dim);
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 6px;
+          padding: 1px 6px;
+        }
+        .simon-hint {
+          font-size: 0.72rem;
+          color: var(--ink-dim);
+          text-align: center;
+          max-width: 520px;
+        }
+        .simon-hint strong {
+          color: #bbe9ff;
         }
       `}</style>
     </div>

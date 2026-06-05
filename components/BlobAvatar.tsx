@@ -7,11 +7,13 @@ export function BlobAvatar({
   size = 72,
   animate = false,
   anim = "idle",
+  variant = 0,
 }: {
   characterId: string;
   size?: number;
   animate?: boolean;
   anim?: string;
+  variant?: number; // >0 = same-icon accent rim, matching the in-game disambiguation
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
@@ -30,12 +32,13 @@ export function BlobAvatar({
         r: size * 0.3,
         time: t,
         anim,
+        variant,
       });
       if (animate) raf = requestAnimationFrame(render);
     };
     render(animate ? performance.now() : 0);
     return () => cancelAnimationFrame(raf);
-  }, [characterId, size, animate, anim]);
+  }, [characterId, size, animate, anim, variant]);
 
   return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} />;
 }

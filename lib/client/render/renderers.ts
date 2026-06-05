@@ -6,6 +6,7 @@ import { getMap } from "../../shared/maps";
 import { drawArena, drawBlob, drawShadow, drawProp, drawSword } from "./draw";
 import type { FxSystem } from "./fx";
 import { POWERUP_ICONS, POWERUPS } from "../../shared/powerups";
+import { simonEmoji } from "../../shared/simon";
 import { glassChoice } from "../glass";
 
 // Team accent colors (freeze tag / dodgeball)
@@ -17,6 +18,7 @@ export interface RenderCtx {
   fx: FxSystem;
   mapId: string | null;
   numbers?: Map<string, number>; // playerId -> Squid Game number
+  variants?: Map<string, number>; // playerId -> duplicate-icon accent slot (0 = unique)
   deaths?: Map<string, number>; // actorId -> client time (ms) first seen dead, for the coffin drop-in
 }
 
@@ -30,7 +32,7 @@ function fit(W: number, H: number): Fit {
   return { s, ox: (W - ARENA_W * s) / 2, oy: (H - ARENA_H * s) / 2 };
 }
 
-const ARENA_GAMES = new Set(["redlight", "tag", "mingle", "boomerang", "dodgeball", "musicalchairs", "prophunt", "koth"]);
+const ARENA_GAMES = new Set(["redlight", "tag", "mingle", "boomerang", "dodgeball", "musicalchairs", "prophunt", "keepyuppy", "koth"]);
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
@@ -68,6 +70,10 @@ export function renderFrame(
     renderJump(ctx, W, H, cur, rc);
   } else if (cur.game === "present") {
     renderParlor(ctx, W, H, cur, prev, alpha, rc);
+  } else if (cur.game === "chutesladders") {
+    renderBoard(ctx, W, H, cur, rc);
+  } else if (cur.game === "simonsays") {
+    renderSimon(ctx, W, H, cur, rc);
   }
 }
 
@@ -132,11 +138,14 @@ function renderArena(
         time: rc.time,
         name: a.name,
         number: rc.numbers?.get(a.id),
+        variant: rc.variants?.get(a.id),
         you: a.id === rc.youId,
       });
       if (a.burning) drawFlames(ctx, a.x, a.y, a.scale ?? 1, rc.time);
       if (a.frozen) drawFrozen(ctx, a.x, a.y, a.scale ?? 1, rc.time);
       if (cur.game === "koth" && a.id === d.kingId) drawCrown(ctx, a.x, a.y, a.scale ?? 1, rc.time);
+      // keepy uppy: a pin juts out while the spike is "out" (its touch pops balloons)
+      if (cur.game === "keepyuppy" && a.progress) drawSpikePin(ctx, a.x, a.y, a.facing ?? 0, a.scale ?? 1, a.progress);
     }
 
     // --- boomerangs ---
@@ -146,6 +155,10 @@ function renderArena(
     // --- dodgeballs (over the blobs) ---
     if (cur.game === "dodgeball" && d.balls) {
       for (const b of d.balls) drawBall(ctx, b.x, b.y, b.state);
+    }
+    // --- keepy uppy balloons (float above everything) ---
+    if (cur.game === "keepyuppy" && d.balloons) {
+      for (const b of d.balloons) drawBalloon(ctx, b, b.owner === rc.youId, rc.time);
     }
   }
 
@@ -201,6 +214,7 @@ function drawProphuntField(ctx: CanvasRenderingContext2D, d: any, actors: Actor[
             time: rc.time,
             name: a.name,
             number: rc.numbers?.get(a.id),
+            variant: rc.variants?.get(a.id),
             you: youAreThis,
           });
           drawSword(ctx, a.x, a.y, a.facing ?? 0, a.scale ?? 1, a.progress ?? 0);
@@ -226,6 +240,7 @@ function drawProphuntField(ctx: CanvasRenderingContext2D, d: any, actors: Actor[
             time: rc.time,
             name: a.name,
             number: rc.numbers?.get(a.id),
+            variant: rc.variants?.get(a.id),
             you: youAreThis,
           }),
       });
@@ -416,6 +431,104 @@ function drawRang(ctx: CanvasRenderingContext2D, x: number, y: number, spin: num
   ctx.restore();
 }
 
+// =================== KEEPY UPPY ===================
+const BALLOON_R = 30; // matches the server's KeepyUppy.BALLOON_R
+
+function drawBalloon(
+  ctx: CanvasRenderingContext2D,
+  b: { x: number; y: number; vx?: number; color: string },
+  mine: boolean,
+  t: number,
+) {
+  const r = BALLOON_R;
+  const lean = Math.max(-0.5, Math.min(0.5, (b.vx ?? 0) / 320)); // tilt into the drift
+  ctx.save();
+  ctx.translate(b.x, b.y);
+
+  // "yours" marker: a soft pulsing halo so you can pick your balloon out of the sky
+  if (mine) {
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.006);
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.25 * pulse;
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([7, 7]);
+    ctx.lineDashOffset = t * 0.03;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r + 7, r + 9, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.rotate(lean * 0.4);
+
+  // wavy string down to the knot
+  ctx.strokeStyle = "rgba(0,0,0,0.32)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, r * 1.04);
+  for (let i = 1; i <= 4; i++) {
+    const yy = r * 1.04 + i * 9;
+    const xx = Math.sin(t * 0.004 + i * 0.9 + b.x * 0.01) * 5;
+    ctx.lineTo(xx, yy);
+  }
+  ctx.stroke();
+
+  // body (a fat teardrop), tinted to the owner's blob
+  ctx.fillStyle = b.color;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 0.92, r, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // knot at the bottom
+  ctx.beginPath();
+  ctx.moveTo(-5, r * 0.95);
+  ctx.lineTo(5, r * 0.95);
+  ctx.lineTo(0, r * 1.14);
+  ctx.closePath();
+  ctx.fill();
+  // rim
+  ctx.strokeStyle = "rgba(0,0,0,0.22)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 0.92, r, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  // glossy highlight
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.3, -r * 0.38, r * 0.22, r * 0.32, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// the pin that juts from a spiking blob — its touch bursts balloons
+function drawSpikePin(ctx: CanvasRenderingContext2D, x: number, y: number, facing: number, scale: number, intensity: number) {
+  const base = PLAYER_RADIUS * scale * 0.6;
+  const len = PLAYER_RADIUS * scale + 24;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(facing);
+  ctx.globalAlpha = 0.55 + 0.45 * intensity;
+  ctx.strokeStyle = "#e8eef2";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(base, 0);
+  ctx.lineTo(len, 0);
+  ctx.stroke();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.moveTo(len - 1, -4);
+  ctx.lineTo(len + 12, 0);
+  ctx.lineTo(len - 1, 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  ctx.beginPath();
+  ctx.arc(len + 12, 0, 2.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 // =================== GLASS BRIDGE ===================
 // Client-side animation state for the local player's crossing. The server only
 // reports row + stun; everything below — the climbing camera, the step onto the
@@ -430,6 +543,7 @@ const glass = {
   landAt: -1, // rc.time of the last successful step (releases the lean)
   lastT: 0,
   inited: false,
+  subjectId: null as string | null, // when spectating, the climber we're following
 };
 const GLASS_ROW_H = 92;
 
@@ -475,21 +589,47 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  const you = (d.walkers || []).find((w: any) => w.id === rc.youId);
+  const walkers: any[] = d.walkers || [];
+  const you = walkers.find((w: any) => w.id === rc.youId);
 
-  // ----- left rail: everyone's progress -----
+  // Who fills the center bridge: your own crossing while you're still on it,
+  // otherwise a leader to follow so the fallen & the spectators watch the action
+  // instead of a dead "Spectating…" screen. (Finishers keep their own splash.)
+  let subject: any = you && you.alive && !you.finished ? you : null;
+  const isLocal = !!subject;
+  if (!subject && !(you && you.finished)) {
+    let feat = glass.subjectId
+      ? walkers.find((w: any) => w.id === glass.subjectId && w.alive && !w.finished)
+      : null;
+    if (!feat) {
+      feat =
+        walkers.filter((w: any) => w.alive && !w.finished).sort((a: any, b: any) => b.row - a.row)[0] || null;
+      glass.subjectId = feat ? feat.id : null;
+      glass.inited = false; // re-seat the camera on the newly-chosen subject
+    }
+    subject = feat;
+  }
+
+  // ----- left rail: everyone's progress (the watched climber gets a ring) -----
   ctx.save();
   ctx.font = "700 14px 'Baloo 2', sans-serif";
   ctx.fillStyle = "#b9a7d6";
   ctx.textAlign = "left";
   ctx.fillText("CLIMBERS", 24, 34);
   const railH = H - 90;
-  (d.walkers || []).forEach((w: any, i: number) => {
+  walkers.forEach((w: any, i: number) => {
     const yy = 60 + (i % 12) * (railH / 12);
     const xx = 24 + Math.floor(i / 12) * 120;
     const prog = w.finished ? 1 : w.row / rows;
     ctx.fillStyle = w.alive ? (w.finished ? "#69f0ae" : "#fff") : "#6b5a86";
-    drawBlob(ctx, w.characterId, xx + 14, yy, { r: 12, time: rc.time, anim: w.alive ? "idle" : "dead" });
+    drawBlob(ctx, w.characterId, xx + 14, yy, { r: 12, time: rc.time, anim: w.alive ? "idle" : "dead", variant: rc.variants?.get(w.id) });
+    if (!isLocal && subject && w.id === subject.id) {
+      ctx.strokeStyle = "#ffd54f";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(xx + 14, yy, 16, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.fillStyle = "rgba(255,255,255,0.15)";
     ctx.fillRect(xx + 34, yy - 4, 70, 8);
     ctx.fillStyle = w.finished ? "#69f0ae" : w.alive ? "#ff8fb3" : "#6b5a86";
@@ -497,53 +637,60 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
   });
   ctx.restore();
 
-  // ----- center: your bridge -----
+  // ----- center: the bridge -----
   const cx = W / 2;
-  if (!you || !you.alive) {
-    glass.inited = false; // so the next round's crossing starts from row 0
-    ctx.font = "800 40px 'Baloo 2', sans-serif";
-    ctx.fillStyle = you && !you.alive ? "#ff5252" : "#b9a7d6";
-    ctx.textAlign = "center";
-    ctx.fillText(you ? "💥 You fell!" : "Spectating…", cx, H / 2);
-    return;
-  }
-  if (you.finished) {
+  // Your own finish keeps its celebration (a personal win moment).
+  if (you && you.finished) {
     glass.inited = false;
+    glass.subjectId = null;
     ctx.font = "800 44px 'Baloo 2', sans-serif";
     ctx.fillStyle = "#69f0ae";
     ctx.textAlign = "center";
     ctx.fillText("🏁 You made it across!", cx, H / 2);
-    drawBlob(ctx, you.characterId, cx, H / 2 + 70, { r: 40, time: rc.time, anim: "cheer", name: you.name, number: rc.numbers?.get(you.id), you: true });
+    drawBlob(ctx, you.characterId, cx, H / 2 + 70, { r: 40, time: rc.time, anim: "cheer", name: you.name, number: rc.numbers?.get(you.id), variant: rc.variants?.get(you.id), you: true });
+    return;
+  }
+  // Nobody left on the bridge to watch — quiet splash for your own outcome.
+  if (!subject) {
+    glass.inited = false;
+    glass.subjectId = null;
+    ctx.font = "800 40px 'Baloo 2', sans-serif";
+    ctx.fillStyle = you && !you.alive ? "#ff5252" : "#b9a7d6";
+    ctx.textAlign = "center";
+    ctx.fillText(you && !you.alive ? "💥 You fell!" : "Spectating…", cx, H / 2);
     return;
   }
 
   // --- advance the local animation clock ---
   const dt = glass.lastT ? Math.min(0.05, Math.max(0, (rc.time - glass.lastT) / 1000)) : 0;
   glass.lastT = rc.time;
-  // (re)initialise on first frame or a fresh bridge (row jumped back to the start)
-  if (!glass.inited || you.row + 1 < Math.floor(glass.cam)) {
-    glass.cam = you.row;
+  // (re)initialise on first frame, a fresh bridge, or a change of subject
+  if (!glass.inited || subject.row + 1 < Math.floor(glass.cam)) {
+    glass.cam = subject.row;
     glass.stepX = 0;
-    glass.prevRow = you.row;
-    glass.prevStun = you.stun;
+    glass.prevRow = subject.row;
+    glass.prevStun = subject.stun;
     glass.shatterAt = -1;
     glass.landAt = -1;
     glass.inited = true;
   }
-  // react to what the server just told us: a step cleared, or a tile cracked
-  if (you.row > glass.prevRow) glass.landAt = rc.time;
-  if (you.stun && !glass.prevStun) {
+  // react to what the server just told us: a step cleared, or a tile cracked. We
+  // only know which side YOU picked; for a watched climber, fake a side off the
+  // row so the shatter still reads.
+  if (subject.row > glass.prevRow) glass.landAt = rc.time;
+  if (subject.stun && !glass.prevStun) {
     glass.shatterAt = rc.time;
-    glass.shatterSide = glassChoice.at > 0 ? glassChoice.side : 1;
+    glass.shatterSide = isLocal ? (glassChoice.at > 0 ? glassChoice.side : 1) : subject.row % 2 === 0 ? -1 : 1;
   }
-  glass.prevRow = you.row;
-  glass.prevStun = you.stun;
+  glass.prevRow = subject.row;
+  glass.prevStun = subject.stun;
 
-  // camera climbs toward your current row → real sense of crossing
-  glass.cam += (you.row - glass.cam) * Math.min(1, dt * 9);
-  // lean onto the tile you just picked, until the server resolves it
+  // camera climbs toward the current row → real sense of crossing
+  glass.cam += (subject.row - glass.cam) * Math.min(1, dt * 9);
+  // lean onto the tile you just picked, until the server resolves it (local only)
   const choosing =
-    !you.stun &&
+    isLocal &&
+    !subject.stun &&
     glassChoice.at > glass.landAt &&
     glassChoice.at > glass.shatterAt &&
     rc.time - glassChoice.at < 600;
@@ -565,7 +712,7 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
     const scale = Math.max(0.34, 1 - Math.max(0, depth) * 0.12);
     const tileW = 110 * scale;
     const gap = 40 * scale;
-    const isChoice = r === you.row;
+    const isChoice = r === subject.row;
     for (const side of [-1, 1]) {
       const tx = cx + side * (gap / 2 + tileW / 2);
       const broken = isChoice && side === glass.shatterSide && rc.time - glass.shatterAt < 480;
@@ -584,7 +731,8 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
         roundRect(ctx, tx - tileW / 2, yy - 26 * scale, tileW, 52 * scale, 10);
         ctx.fill();
         ctx.stroke();
-        if (isChoice) {
+        // arrows only on YOUR choice tile — a spectator isn't picking
+        if (isChoice && isLocal) {
           ctx.fillStyle = leaning ? "#fff" : "rgba(255,255,255,0.85)";
           ctx.font = `800 ${26 * scale}px 'Baloo 2', sans-serif`;
           ctx.textAlign = "center";
@@ -595,30 +743,35 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
     }
   }
 
-  // your blob — stands in front of the choice tiles and steps onto your pick
-  const choiceDepth = you.row - cam;
+  // the climber — stands in front of the choice tiles and steps onto the pick
+  const choiceDepth = subject.row - cam;
   const choiceY = baseY - choiceDepth * GLASS_ROW_H;
   const cScale = Math.max(0.5, 1 - Math.max(0, choiceDepth) * 0.12);
   const tileW = 110 * cScale;
   const gap = 40 * cScale;
   const standX = cx + glass.stepX * (gap / 2 + tileW / 2);
   const standY = choiceY + 34 * cScale - Math.abs(glass.stepX) * 12; // little hop as you step over
-  drawBlob(ctx, you.characterId, standX, standY, {
+  drawBlob(ctx, subject.characterId, standX, standY, {
     r: 34,
     time: rc.time,
-    anim: you.stun ? "fall" : "idle",
-    name: you.name,
-    number: rc.numbers?.get(you.id),
-    you: true,
-    flash: you.stun ? 0.6 : 0,
+    anim: subject.stun ? "fall" : "idle",
+    name: subject.name,
+    number: rc.numbers?.get(subject.id),
+    variant: rc.variants?.get(subject.id),
+    you: isLocal,
+    flash: subject.stun ? 0.6 : 0,
   });
 
   // header / prompt
   ctx.textAlign = "center";
   ctx.font = "800 22px 'Baloo 2', sans-serif";
   ctx.fillStyle = "#fff";
-  ctx.fillText(`Row ${Math.min(you.row + 1, rows)} / ${rows}`, cx, topY - 26);
-  if (you.stun) {
+  ctx.fillText(`Row ${Math.min(subject.row + 1, rows)} / ${rows}`, cx, topY - 26);
+  if (!isLocal) {
+    ctx.fillStyle = "#ffd54f";
+    ctx.font = "800 17px 'Baloo 2', sans-serif";
+    ctx.fillText(`👁 Watching ${subject.name}`, cx, topY + 2);
+  } else if (subject.stun) {
     ctx.fillStyle = "#ff5252";
     ctx.font = "800 24px 'Baloo 2', sans-serif";
     ctx.fillText("CRACK! — steady…", cx, topY + 4);
@@ -639,14 +792,25 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
   ctx.fillRect(0, 0, W, H);
 
   const midY = H * 0.52;
-  // pits
+
+  // ropePos > 0 → team 0 (left) is winning; < 0 → team 1 (right) is winning.
+  const ropePos = d.ropePos || 0;
+  const rp = Math.max(-1, Math.min(1, ropePos));
+  // The rope/flag slides toward the WINNING team's side — tap harder, haul it home.
+  const slide = rp * (W * 0.3);
+  const centerX = W / 2 - slide; // rp>0 → moves left, toward team 0
+
+  // pits at the far edges — the pit on the *winning* side flares, since that's the
+  // way the rope (and soon the losing team) is being dragged.
   for (const side of [-1, 1]) {
+    // side -1 = left pit (team 0's side), +1 = right pit (team 1's side)
+    const hot = side < 0 ? ropePos > 0.4 : ropePos < -0.4;
     const px = side < 0 ? 0 : W - 110;
-    const pg = ctx.createLinearGradient(px, 0, px + 110 * (side < 0 ? 1 : -1) + (side < 0 ? 0 : 110), 0);
-    pg.addColorStop(0, "rgba(255,23,68,0.5)");
-    pg.addColorStop(1, "rgba(255,23,68,0)");
-    ctx.fillStyle = side < 0 ? pg : pg;
-    ctx.fillRect(side < 0 ? 0 : W - 110, 0, 110, H);
+    const pg = ctx.createLinearGradient(px, 0, side < 0 ? 110 : W - 110, 0);
+    pg.addColorStop(side < 0 ? 0 : 1, `rgba(255,23,68,${hot ? 0.8 : 0.42})`);
+    pg.addColorStop(side < 0 ? 1 : 0, "rgba(255,23,68,0)");
+    ctx.fillStyle = pg;
+    ctx.fillRect(px, 0, 110, H);
   }
   ctx.font = "800 18px 'Baloo 2', sans-serif";
   ctx.fillStyle = "#ff5252";
@@ -662,9 +826,6 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
   ctx.fillText("THE PIT", 0, 0);
   ctx.restore();
 
-  const ropePos = d.ropePos || 0; // -1..1
-  const centerX = W / 2 + ropePos * (W * 0.34);
-
   // rope
   ctx.strokeStyle = "#c8a25a";
   ctx.lineWidth = 9;
@@ -672,37 +833,41 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
   ctx.moveTo(120, midY);
   ctx.lineTo(W - 120, midY);
   ctx.stroke();
-  // center marker / flag
-  ctx.fillStyle = ropePos > 0.4 ? "#ff5252" : ropePos < -0.4 ? "#ff5252" : "#ffd54f";
+  // center marker / flag — the pennant points the way the rope is being hauled
+  const flagDir = ropePos >= 0 ? -1 : 1; // toward team 0 (left) or team 1 (right)
+  ctx.fillStyle = Math.abs(ropePos) > 0.4 ? "#ff5252" : "#ffd54f";
   ctx.fillRect(centerX - 4, midY - 60, 8, 120);
   ctx.beginPath();
   ctx.moveTo(centerX, midY - 60);
-  ctx.lineTo(centerX + 34, midY - 48);
+  ctx.lineTo(centerX + flagDir * 34, midY - 48);
   ctx.lineTo(centerX, midY - 36);
   ctx.fill();
 
-  // teams
+  // teams — anchored to their own sides, the whole formation leaning the way the
+  // rope slides: the winners haul backward, the losers get dragged toward center.
   const t0 = (d.pullers || []).filter((p: any) => p.team === 0);
   const t1 = (d.pullers || []).filter((p: any) => p.team === 1);
-  const drawTeam = (team: any[], dir: number) => {
+  const lean = -slide * 0.22; // both teams drift toward the winning side
+  const drawTeam = (team: any[], side: number) => {
+    // side: -1 = left (team 0), +1 = right (team 1)
     team.forEach((p: any, i: number) => {
-      const along = 0.5 + i * 0.5;
-      const bx = centerX - dir * (120 + i * 64);
+      const bx = W / 2 + side * (130 + i * 60) + lean;
       const by = midY + (i % 2 === 0 ? -34 : 30);
-      const pull = Math.sin(rc.time * 0.02 + i) * 6;
-      drawBlob(ctx, p.characterId, bx - dir * pull, by, {
+      const sway = Math.sin(rc.time * 0.02 + i) * 5;
+      drawBlob(ctx, p.characterId, bx + sway, by, {
         r: 30,
         time: rc.time,
         anim: "run",
-        facing: dir < 0 ? 0 : Math.PI,
+        facing: side < 0 ? 0 : Math.PI, // face the rope / the opponents
         name: p.name,
         number: rc.numbers?.get(p.id),
+        variant: rc.variants?.get(p.id),
         you: p.id === rc.youId,
       });
     });
   };
-  drawTeam(t0, 1); // team 0 pulls left (toward -1)? ropePos>0 means team0 wins (rope toward +). We'll say team0 on left.
-  drawTeam(t1, -1);
+  drawTeam(t0, -1); // team 0 on the LEFT
+  drawTeam(t1, 1); // team 1 on the RIGHT
 
   // labels
   ctx.font = "800 22px 'Baloo 2', sans-serif";
@@ -754,7 +919,7 @@ function renderRps(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
 
   // opponent (top)
   if (oppChar) {
-    drawBlob(ctx, oppChar, W / 2, H * 0.26, { r: 56, time: rc.time, anim: "idle", name: oppName, number: rc.numbers?.get(oppId), facing: Math.PI / 2 });
+    drawBlob(ctx, oppChar, W / 2, H * 0.26, { r: 56, time: rc.time, anim: "idle", name: oppName, number: rc.numbers?.get(oppId), variant: rc.variants?.get(oppId), facing: Math.PI / 2 });
     drawHands(ctx, W / 2, H * 0.26 + 80, oppThrows, oppKeep, duel.status);
   } else {
     ctx.font = "800 26px 'Baloo 2', sans-serif";
@@ -773,7 +938,7 @@ function renderRps(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
 
   // you (bottom)
   if (meChar) {
-    drawBlob(ctx, meChar, W / 2, H * 0.74, { r: 60, time: rc.time, anim: duel.status === "done" && duel.winner === (youAreA ? duel.a : duel.b) ? "cheer" : "idle", name: meName, number: rc.numbers?.get(meId), you: true, facing: -Math.PI / 2 });
+    drawBlob(ctx, meChar, W / 2, H * 0.74, { r: 60, time: rc.time, anim: duel.status === "done" && duel.winner === (youAreA ? duel.a : duel.b) ? "cheer" : "idle", name: meName, number: rc.numbers?.get(meId), variant: rc.variants?.get(meId), you: true, facing: -Math.PI / 2 });
     drawHands(ctx, W / 2, H * 0.74 - 90, meThrows, meKeep, duel.status);
   }
 }
@@ -850,6 +1015,7 @@ function renderJump(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sn
       anim: j.airborne ? "cheer" : "idle",
       name: j.name,
       number: rc.numbers?.get(j.id),
+      variant: rc.variants?.get(j.id),
       you: j.id === rc.youId,
     });
   });
@@ -869,6 +1035,483 @@ function renderJump(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sn
   ctx.stroke();
 
   rc.fx.draw(ctx);
+}
+
+// =================== SIMON SAYS (obey the order, or freeze) ===================
+function renderSimon(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Snapshot, rc: RenderCtx) {
+  const d: any = cur.data || {};
+  const phase: string = d.phase || "ready";
+  const cmd = d.command as { key: string; label: string; emoji: string; freeze: boolean } | null;
+  const freeze = !!d.freeze;
+  const contestants: any[] = d.contestants || [];
+  const t = rc.time;
+
+  // backdrop — an icy wash on a freeze, the usual pink stage otherwise
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  if (freeze && phase === "call") {
+    bg.addColorStop(0, "#0e2a3a");
+    bg.addColorStop(1, "#060d16");
+  } else {
+    bg.addColorStop(0, "#2a1240");
+    bg.addColorStop(1, "#0b0713");
+  }
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ---- top banner: the order ----
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#b9a7d6";
+  ctx.font = "800 18px 'Baloo 2', sans-serif";
+  ctx.fillText(`Order ${d.beat || 1}`, W / 2, 40);
+
+  if (phase === "ready" || !cmd) {
+    const pulse = 0.6 + 0.4 * Math.sin(t * 0.012);
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = "#ffd54f";
+    ctx.font = `800 ${Math.round(Math.min(64, W * 0.06))}px 'Baloo 2', sans-serif`;
+    ctx.fillText("🙆 Simon says…", W / 2, H * 0.2);
+    ctx.globalAlpha = 1;
+  } else {
+    const big = Math.round(Math.min(74, W * 0.07));
+    if (freeze) {
+      const flash = 0.7 + 0.3 * Math.sin(t * 0.03);
+      ctx.fillStyle = `rgba(187,233,255,${flash})`;
+      ctx.font = `${big + 8}px serif`;
+      ctx.fillText("🧊", W / 2, H * 0.16);
+      ctx.fillStyle = "#bbe9ff";
+      ctx.font = `800 ${big}px 'Baloo 2', sans-serif`;
+      ctx.fillText("FREEZE!", W / 2, H * 0.16 + big * 0.95);
+      ctx.fillStyle = "#7fd6ff";
+      ctx.font = "800 22px 'Baloo 2', sans-serif";
+      ctx.fillText(phase === "judge" ? "Hands off was the move." : "DON'T TOUCH ANYTHING", W / 2, H * 0.16 + big * 1.5);
+    } else {
+      ctx.font = `${big + 6}px serif`;
+      ctx.fillText(cmd.emoji, W / 2, H * 0.16);
+      ctx.fillStyle = "#fff";
+      ctx.font = `800 ${big}px 'Baloo 2', sans-serif`;
+      ctx.fillText(cmd.label.toUpperCase(), W / 2, H * 0.16 + big * 0.95);
+    }
+    // judge sub-line: how many got boxed this order
+    if (phase === "judge") {
+      const outNow = contestants.filter((c) => c.result === "out").length;
+      ctx.font = "800 22px 'Baloo 2', sans-serif";
+      ctx.fillStyle = outNow ? "#ff5252" : "#69f0ae";
+      ctx.fillText(outNow ? `💥 ${outNow} eliminated` : "✅ Everyone obeyed!", W / 2, H * 0.16 + big * 1.5);
+    }
+  }
+  ctx.restore();
+
+  // ---- reaction timer bar (only while the window is open) ----
+  if (phase === "call") {
+    const react = Math.max(0, Math.min(1, d.react || 0));
+    const left = 1 - react;
+    const barW = Math.min(560, W * 0.55);
+    const barX = (W - barW) / 2;
+    const barY = H * 0.31;
+    ctx.save();
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    roundRect(ctx, barX, barY, barW, 16, 8);
+    ctx.fill();
+    const col = left > 0.5 ? "#69f0ae" : left > 0.25 ? "#ffd54f" : "#ff5252";
+    ctx.fillStyle = freeze ? "#7fd6ff" : col;
+    roundRect(ctx, barX, barY, Math.max(0, barW * left), 16, 8);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ---- contestants grid ----
+  const n = contestants.length;
+  if (n > 0) {
+    const cols = Math.min(n, n <= 5 ? n : Math.ceil(Math.sqrt(n * 1.8)));
+    const rows = Math.ceil(n / cols);
+    const areaTop = H * 0.4;
+    const areaBot = H * 0.92;
+    const cellW = (W - 80) / cols;
+    const cellH = (areaBot - areaTop) / rows;
+    const startX = (W - cellW * cols) / 2;
+    const r = Math.max(15, Math.min(46, Math.min(cellW, cellH) * 0.3));
+
+    contestants.forEach((c, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = startX + col * cellW + cellW / 2;
+      const y = areaTop + row * cellH + cellH * 0.5;
+
+      if (!c.alive) {
+        drawCoffin(ctx, x, y, r / PLAYER_RADIUS, t, coffinAge(rc, c.id));
+        return;
+      }
+
+      const safe = phase === "judge" && c.result === "safe";
+      drawBlob(ctx, c.characterId, x, y, {
+        r,
+        time: t,
+        anim: safe ? "cheer" : "idle",
+        name: n <= 8 ? c.name : undefined,
+        number: rc.numbers?.get(c.id),
+        variant: rc.variants?.get(c.id),
+        you: c.id === rc.youId,
+      });
+
+      // bubble above the blob: what they did / their verdict
+      let bubble = "";
+      let faint = false;
+      if (phase === "call") {
+        if (c.did) bubble = simonEmoji(c.did);
+        else {
+          bubble = "❓";
+          faint = true;
+        }
+      } else if (phase === "judge") {
+        bubble = safe ? "✅" : "";
+      }
+      if (bubble) {
+        ctx.save();
+        ctx.globalAlpha = faint ? 0.4 : 1;
+        ctx.font = `${Math.round(r * 1.1)}px serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(bubble, x, y - r * 1.5 + Math.sin(t * 0.006 + i) * 2);
+        ctx.restore();
+      }
+    });
+  }
+
+  // ---- danger vignette on a live freeze ----
+  if (freeze && phase === "call") {
+    ctx.save();
+    ctx.strokeStyle = `rgba(127,214,255,${0.25 + 0.2 * Math.sin(t * 0.02)})`;
+    ctx.lineWidth = 14;
+    ctx.strokeRect(7, 7, W - 14, H - 14);
+    ctx.restore();
+  }
+
+  rc.fx.draw(ctx);
+}
+
+// =================== CHUTES & LADDERS (board) ===================
+// Smoothly-eased pawn positions + latched "+N 🪜 / −N 🐍" pop labels, kept out of
+// the snapshot so the climb reads as motion instead of teleporting each roll.
+const board = {
+  pos: new Map<string, { x: number; y: number }>(),
+  prevSq: new Map<string, number>(),
+  label: new Map<string, { text: string; color: string; at: number }>(),
+  lastT: 0,
+};
+const DIE_PIPS: Record<number, number[][]> = {
+  1: [[0, 0]],
+  2: [[-1, -1], [1, 1]],
+  3: [[-1, -1], [0, 0], [1, 1]],
+  4: [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+  5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
+  6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]],
+};
+
+function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Snapshot, rc: RenderCtx) {
+  const d: any = cur.data || {};
+  const cols: number = d.cols || 10;
+  const rows: number = d.rows || 10;
+  const goal: number = d.goal || 100;
+  const climbers: any[] = d.climbers || [];
+
+  // backdrop
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#241433");
+  bg.addColorStop(1, "#0c0717");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ---- board geometry (a centered square grid, header space up top) ----
+  const size = Math.max(180, Math.min(W - 96, H - 150));
+  const cell = size / cols;
+  const bx = (W - size) / 2;
+  const by = 78;
+
+  const cellCenter = (square: number): { x: number; y: number } => {
+    if (square <= 0) return { x: bx + cell * 0.5, y: by + size + cell * 0.62 }; // start pad
+    const s = Math.min(square, goal);
+    const r = Math.floor((s - 1) / cols); // 0 = bottom row
+    const within = (s - 1) % cols;
+    const col = r % 2 === 0 ? within : cols - 1 - within; // serpentine
+    return { x: bx + col * cell + cell / 2, y: by + (rows - 1 - r) * cell + cell / 2 };
+  };
+
+  // ---- the grid of numbered cells ----
+  ctx.save();
+  for (let s = 1; s <= goal; s++) {
+    const c = cellCenter(s);
+    const r = Math.floor((s - 1) / cols);
+    const within = (s - 1) % cols;
+    const col = r % 2 === 0 ? within : cols - 1 - within;
+    const checker = (r + col) % 2 === 0;
+    ctx.fillStyle = checker ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.02)";
+    ctx.fillRect(c.x - cell / 2, c.y - cell / 2, cell, cell);
+    if (s === goal) {
+      ctx.fillStyle = "rgba(105,240,174,0.18)";
+      ctx.fillRect(c.x - cell / 2, c.y - cell / 2, cell, cell);
+    }
+    ctx.fillStyle = s === goal ? "#69f0ae" : "rgba(201,184,230,0.45)";
+    ctx.font = `${Math.round(cell * 0.2)}px 'Baloo 2', sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(s === goal ? "🏁100" : String(s), c.x - cell / 2 + 4, c.y - cell / 2 + 3);
+  }
+  // outer frame
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(bx, by, size, size);
+  ctx.textBaseline = "alphabetic";
+  ctx.restore();
+
+  // ---- ladders ----
+  for (const l of d.ladders || []) drawLadder(ctx, cellCenter(l.from), cellCenter(l.to), cell);
+  // ---- snakes / chutes ----
+  for (const s of d.chutes || []) drawSnake(ctx, cellCenter(s.from), cellCenter(s.to), cell, rc.time);
+
+  // ---- advance eased pawn positions ----
+  const dt = board.lastT ? Math.min(0.05, Math.max(0, (rc.time - board.lastT) / 1000)) : 0;
+  board.lastT = rc.time;
+  for (const c of climbers) {
+    const target = cellCenter(c.square);
+    const prevSq = board.prevSq.get(c.id);
+    let p = board.pos.get(c.id);
+    // snap on (re)spawn / round reset: nobody has moved off the start yet
+    if (!p || c.square <= 0 || prevSq === undefined) {
+      p = { x: target.x, y: target.y };
+      board.pos.set(c.id, p);
+    } else {
+      p.x += (target.x - p.x) * Math.min(1, dt * 10);
+      p.y += (target.y - p.y) * Math.min(1, dt * 10);
+    }
+    // latch a pop label when a ladder/snake fired (a jump bigger than a die roll)
+    if (prevSq !== undefined && c.square !== prevSq) {
+      const delta = c.square - prevSq;
+      if (delta > 6) board.label.set(c.id, { text: `+${delta} 🪜`, color: "#69f0ae", at: rc.time });
+      else if (delta < 0) board.label.set(c.id, { text: `${delta} 🐍`, color: "#ff5252", at: rc.time });
+      else if (c.square >= goal) board.label.set(c.id, { text: "SAFE! 🏁", color: "#69f0ae", at: rc.time });
+    }
+    board.prevSq.set(c.id, c.square);
+  }
+
+  // ---- who's in the danger zone? (lowest living, non-finished pawns) ----
+  const dangerCount: number = d.dangerCount || 0;
+  const racers = climbers
+    .filter((c) => c.alive && !c.finished)
+    .sort((a, b) => a.square - b.square);
+  const inDanger = new Set(racers.slice(0, dangerCount).map((c) => c.id));
+  const lowTime = (d.timeLeft ?? 99) < 6;
+
+  // ---- cluster pawns sharing a cell so they don't fully overlap ----
+  const bySquare = new Map<number, any[]>();
+  for (const c of climbers) {
+    const k = c.alive ? c.square : -1000 - c.square; // dead drawn at their last cell
+    if (!bySquare.has(k)) bySquare.set(k, []);
+    bySquare.get(k)!.push(c);
+  }
+  const offsetFor = (i: number, n: number, sq: number): { ox: number; oy: number } => {
+    if (n <= 1) return { ox: 0, oy: 0 };
+    if (sq <= 0) {
+      // spread the starting crowd along the pad
+      return { ox: (i - (n - 1) / 2) * Math.min(cell * 0.5, (size - cell) / Math.max(1, n - 1)), oy: 0 };
+    }
+    const ang = (i / n) * Math.PI * 2;
+    const rad = cell * 0.22 * (n > 4 ? 1.3 : 1);
+    return { ox: Math.cos(ang) * rad, oy: Math.sin(ang) * rad };
+  };
+
+  const pawnR = Math.max(11, cell * 0.3);
+
+  // draw order: coffins first (under), then living pawns sorted so YOU is on top
+  const drawList = [...climbers].sort((a, b) => {
+    if (a.alive !== b.alive) return a.alive ? 1 : -1;
+    if ((a.id === rc.youId) !== (b.id === rc.youId)) return a.id === rc.youId ? 1 : -1;
+    return 0;
+  });
+
+  for (const c of drawList) {
+    const p = board.pos.get(c.id) || cellCenter(c.square);
+    const groupKey = c.alive ? c.square : -1000 - c.square;
+    const group = bySquare.get(groupKey)!;
+    const idx = group.indexOf(c);
+    const { ox, oy } = offsetFor(idx, group.length, c.square);
+    const x = p.x + ox;
+    const y = p.y + oy;
+
+    if (!c.alive) {
+      drawCoffin(ctx, x, y, pawnR / PLAYER_RADIUS, rc.time, coffinAge(rc, c.id));
+      continue;
+    }
+
+    // danger ring under at-risk pawns (pulses harder as the clock runs down)
+    if (inDanger.has(c.id)) {
+      const pulse = 0.5 + 0.5 * Math.sin(rc.time * (lowTime ? 0.018 : 0.008));
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,60,60,${0.55 + 0.4 * pulse})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, pawnR * 1.35, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawBlob(ctx, c.characterId, x, y, {
+      r: pawnR,
+      time: rc.time,
+      anim: c.finished ? "cheer" : "idle",
+      name: group.length <= 3 ? c.name : undefined,
+      number: rc.numbers?.get(c.id),
+      variant: rc.variants?.get(c.id),
+      you: c.id === rc.youId,
+    });
+    if (c.finished) {
+      ctx.font = `${Math.round(pawnR)}px serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("👑", x, y - pawnR * 1.7);
+    }
+
+    // last-rolled die face, floating beside the pawn
+    if (c.die > 0) drawDie(ctx, x + pawnR * 1.2, y - pawnR * 1.2, Math.max(14, pawnR * 0.9), c.die);
+
+    // pop label (ladder/snake/safe)
+    const lab = board.label.get(c.id);
+    if (lab) {
+      const age = (rc.time - lab.at) / 1000;
+      if (age < 0.9) {
+        ctx.save();
+        ctx.globalAlpha = 1 - age / 0.9;
+        ctx.fillStyle = lab.color;
+        ctx.font = `800 ${Math.round(pawnR * 0.95)}px 'Baloo 2', sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(lab.text, x, y - pawnR * 2.1 - age * 26);
+        ctx.restore();
+      } else {
+        board.label.delete(c.id);
+      }
+    }
+  }
+
+  // ---- header ----
+  ctx.textAlign = "center";
+  ctx.font = "800 26px 'Baloo 2', sans-serif";
+  ctx.fillStyle = "#fff";
+  ctx.fillText("🪜 Roll to 100 — or the snakes eat the stragglers", W / 2, 40);
+  const youInDanger = rc.youId && inDanger.has(rc.youId);
+  if (youInDanger) {
+    ctx.font = "800 20px 'Baloo 2', sans-serif";
+    ctx.fillStyle = lowTime ? "#ff5252" : "#ffd54f";
+    ctx.fillText(lowTime ? "⚠ YOU'RE IN THE PIT — ROLL!" : "⚠ You're lowest — keep climbing!", W / 2, 64);
+  }
+}
+
+function drawLadder(ctx: CanvasRenderingContext2D, a: { x: number; y: number }, b: { x: number; y: number }, cell: number) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len; // perpendicular
+  const ny = dx / len;
+  const w = Math.min(cell * 0.22, 16);
+  ctx.save();
+  ctx.strokeStyle = "#d9a05b";
+  ctx.lineWidth = Math.max(3, cell * 0.06);
+  ctx.lineCap = "round";
+  // two rails
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(a.x + nx * w * s, a.y + ny * w * s);
+    ctx.lineTo(b.x + nx * w * s, b.y + ny * w * s);
+    ctx.stroke();
+  }
+  // rungs
+  ctx.strokeStyle = "#b97f3e";
+  ctx.lineWidth = Math.max(2, cell * 0.04);
+  const rungs = Math.max(2, Math.floor(len / (cell * 0.42)));
+  for (let i = 1; i < rungs; i++) {
+    const t = i / rungs;
+    const cx = a.x + dx * t;
+    const cy = a.y + dy * t;
+    ctx.beginPath();
+    ctx.moveTo(cx + nx * w, cy + ny * w);
+    ctx.lineTo(cx - nx * w, cy - ny * w);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSnake(
+  ctx: CanvasRenderingContext2D,
+  head: { x: number; y: number },
+  tail: { x: number; y: number },
+  cell: number,
+  t: number,
+) {
+  const dx = tail.x - head.x;
+  const dy = tail.y - head.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  ctx.save();
+  // wavy body
+  ctx.strokeStyle = "#9c5bd6";
+  ctx.lineWidth = Math.max(5, cell * 0.16);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  const segs = Math.max(6, Math.floor(len / 18));
+  for (let i = 0; i <= segs; i++) {
+    const f = i / segs;
+    const wob = Math.sin(f * Math.PI * 3 + t * 0.004) * cell * 0.16 * (1 - f * 0.5);
+    const x = head.x + dx * f + nx * wob;
+    const y = head.y + dy * f + ny * wob;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // belly stripe
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = Math.max(1.5, cell * 0.05);
+  ctx.stroke();
+  // head
+  const hr = Math.max(8, cell * 0.2);
+  ctx.fillStyle = "#7e3fb8";
+  ctx.beginPath();
+  ctx.arc(head.x, head.y, hr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(head.x - hr * 0.35, head.y - hr * 0.3, hr * 0.22, 0, Math.PI * 2);
+  ctx.arc(head.x + hr * 0.35, head.y - hr * 0.3, hr * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1a0a26";
+  ctx.beginPath();
+  ctx.arc(head.x - hr * 0.35, head.y - hr * 0.3, hr * 0.1, 0, Math.PI * 2);
+  ctx.arc(head.x + hr * 0.35, head.y - hr * 0.3, hr * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  // forked tongue
+  ctx.strokeStyle = "#ff5252";
+  ctx.lineWidth = Math.max(1.5, hr * 0.16);
+  ctx.beginPath();
+  ctx.moveTo(head.x, head.y + hr * 0.7);
+  ctx.lineTo(head.x, head.y + hr * 1.25);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDie(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, val: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = Math.max(1, s * 0.06);
+  roundRect(ctx, -s / 2, -s / 2, s, s, s * 0.18);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#241a33";
+  const pr = s * 0.1;
+  for (const [px, py] of DIE_PIPS[val] || []) {
+    ctx.beginPath();
+    ctx.arc(px * s * 0.26, py * s * 0.26, pr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 // =================== shared field-game adornments ===================
@@ -1054,11 +1697,8 @@ function drawBow(ctx: CanvasRenderingContext2D, x: number, y: number, s: number)
   ctx.restore();
 }
 
-// =================== KING OF THE HILL (lava floor + safe hill) ===================
+// =================== KING OF THE LAVA ISLANDS (lava floor + sinking islands) ===================
 function drawLava(ctx: CanvasRenderingContext2D, d: any, t: number) {
-  const cx = d.cx ?? ARENA_W / 2;
-  const cy = d.cy ?? ARENA_H / 2;
-  const R = d.safeR ?? 200;
   const lg = ctx.createLinearGradient(0, 0, 0, ARENA_H);
   lg.addColorStop(0, "#3a0b02");
   lg.addColorStop(1, "#180400");
@@ -1080,19 +1720,36 @@ function drawLava(ctx: CanvasRenderingContext2D, d: any, t: number) {
     ctx.fill();
   }
   ctx.restore();
-  // safe hill
+  // the islands — various sizes, sinking into the magma
+  for (const isl of d.islands || []) drawIsland(ctx, isl.x, isl.y, isl.r, t, !!isl.final);
+}
+
+function drawIsland(ctx: CanvasRenderingContext2D, cx: number, cy: number, R: number, t: number, final: boolean) {
+  if (R < 3) return;
   ctx.save();
+  // molten halo bleeding into the lava — reads as the island slowly sinking
+  const halo = ctx.createRadialGradient(cx, cy, R * 0.7, cx, cy, R + 16);
+  halo.addColorStop(0, "rgba(255,90,10,0)");
+  halo.addColorStop(1, "rgba(255,120,20,0.5)");
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R + 16, 0, Math.PI * 2);
+  ctx.fill();
+  // rock surface
   const hg = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R);
-  hg.addColorStop(0, "#5d8a3a");
+  hg.addColorStop(0, final ? "#6f9a44" : "#5d8a3a");
   hg.addColorStop(1, "#37521f");
   ctx.fillStyle = hg;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.fill();
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = `rgba(255,${120 + Math.floor(60 * Math.sin(t * 0.01))},40,0.95)`;
+  // glowing molten rim where rock meets lava
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = `rgba(255,${120 + Math.floor(60 * Math.sin(t * 0.01 + cx * 0.05))},40,0.95)`;
   ctx.shadowColor = "#ff6d00";
-  ctx.shadowBlur = 26;
+  ctx.shadowBlur = 24;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.stroke();
   ctx.shadowBlur = 0;
   ctx.restore();
@@ -1278,6 +1935,7 @@ function renderParlor(
       anim: "idle",
       name: a.name,
       number: rc.numbers?.get(a.id),
+      variant: rc.variants?.get(a.id),
       you: a.id === rc.youId,
     });
     if (receiverSet.has(a.id)) {

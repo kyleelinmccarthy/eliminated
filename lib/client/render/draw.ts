@@ -16,9 +16,15 @@ export interface BlobOpts {
   time: number; // ms for animation
   name?: string;
   number?: number; // Squid Game-style player number, drawn as a chest bib
+  variant?: number; // >0 = duplicate-icon disambiguation: draw an accent rim in MARKER_COLORS[variant-1]
   you?: boolean;
   alpha?: number;
 }
+
+// Accent colors for telling apart players who picked the same blob. Picked to be
+// vivid and well-separated, and distinct from the team-ring palette so a colored
+// rim never reads as a team marker. Cycled if more than this many share an icon.
+const MARKER_COLORS = ["#ffd54f", "#4dd0e1", "#ff7043", "#b388ff", "#69f0ae", "#f06292", "#ffffff", "#8d6e63"];
 
 function shade(hex: string, amt: number): string {
   const c = hex.replace("#", "");
@@ -244,6 +250,16 @@ export function drawBlob(
   ctx.save();
   ctx.scale(squashX, squashY);
   bodyPath(ctx, ch.shape ?? "round", baseR);
+  // duplicate-icon accent rim — stroked before the fill so the body covers its
+  // inner half, leaving a crisp contour in this player's marker color. Hugs the
+  // exact silhouette at any size and never collides with toppings/face/number.
+  const mark = opts.variant && opts.variant > 0 ? MARKER_COLORS[(opts.variant - 1) % MARKER_COLORS.length] : null;
+  if (mark && !dead) {
+    ctx.lineWidth = (baseR * 0.3) / squashY;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = mark;
+    ctx.stroke();
+  }
   ctx.fillStyle = bodyGrad;
   ctx.fill();
   ctx.lineWidth = (baseR * 0.12) / squashY;
@@ -645,32 +661,58 @@ function drawDeco(ctx: CanvasRenderingContext2D, ch: Character, r: number, t: nu
       break;
     }
     case "hood": {
-      // Cloak the whole blob, leaving only an oval face opening — reads as a
-      // hood far more clearly than a thin cowl. `accent` is the cloak colour.
+      // A cloaked figure with the face peeking out of a recessed opening.
+      // Covering the WHOLE blob is what reads as a hood: an earlier version that
+      // cloaked only the crown turned into a haircut, and a fully-lit ringed
+      // opening read as an ape muzzle. The fix is to cloak the entire body and
+      // sink the face into a teardrop opening that's shadowed at the brow. Both
+      // hooded blobs use the round body. `accent` is the cloak colour.
       const cloak = ch.accent;
-      const line = shade(cloak, -30);
+      const rim = shade(cloak, 30);
+      // Face opening: a vertical teardrop — wide at the brow, tapered to the chin.
+      const opening = (c: CanvasRenderingContext2D) => {
+        c.beginPath();
+        c.moveTo(0, -r * 0.6);
+        c.quadraticCurveTo(r * 0.62, -r * 0.58, r * 0.66, -r * 0.05);
+        c.quadraticCurveTo(r * 0.5, r * 0.5, 0, r * 0.62);
+        c.quadraticCurveTo(-r * 0.5, r * 0.5, -r * 0.66, -r * 0.05);
+        c.quadraticCurveTo(-r * 0.62, -r * 0.58, 0, -r * 0.6);
+        c.closePath();
+      };
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r, r * 1.04, 0, 0, Math.PI * 2); // round body silhouette
+      ctx.clip();
+      // cloak the whole body except the opening (even-odd leaves the face showing)
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r, r * 1.04, 0, 0, Math.PI * 2);
+      opening(ctx);
       ctx.fillStyle = cloak;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, r * 1.0, r * 1.04, 0, 0, Math.PI * 2); // outer = body silhouette
-      ctx.ellipse(0, r * 0.22, r * 0.6, r * 0.66, 0, 0, Math.PI * 2); // face opening
       ctx.fill("evenodd");
-      ctx.lineWidth = r * 0.06;
-      ctx.strokeStyle = line;
-      ctx.stroke(); // outlines both the silhouette and the hood rim
-      // pointed hood peak drooping forward at the crown
+      // shadow falling from the hood lip so the face sits recessed inside
+      const shadow = ctx.createLinearGradient(0, -r * 0.6, 0, r * 0.2);
+      shadow.addColorStop(0, "rgba(0,0,0,0.55)");
+      shadow.addColorStop(0.6, "rgba(0,0,0,0.13)");
+      shadow.addColorStop(1, "rgba(0,0,0,0)");
+      opening(ctx);
+      ctx.fillStyle = shadow;
+      ctx.fill();
+      ctx.restore();
+      // lighter fold of fabric at the rim of the opening
+      ctx.lineWidth = r * 0.05;
+      ctx.strokeStyle = rim;
+      opening(ctx);
+      ctx.stroke();
+      // forward-drooping hood point rising above the crown
       ctx.beginPath();
-      ctx.moveTo(-r * 0.32, -r * 0.92);
-      ctx.quadraticCurveTo(r * 0.02, -r * 1.48, r * 0.4, -r * 0.98);
-      ctx.quadraticCurveTo(r * 0.12, -r * 1.02, -r * 0.32, -r * 0.92);
+      ctx.moveTo(-r * 0.3, -r * 1.0);
+      ctx.quadraticCurveTo(r * 0.28, -r * 1.5, r * 0.54, -r * 0.98);
+      ctx.quadraticCurveTo(r * 0.16, -r * 1.12, -r * 0.3, -r * 1.0);
       ctx.closePath();
       ctx.fillStyle = cloak;
       ctx.fill();
-      ctx.stroke();
-      // shadow under the hood lip so the face sits recessed inside
-      ctx.strokeStyle = "rgba(0,0,0,0.3)";
-      ctx.lineWidth = r * 0.2;
-      ctx.beginPath();
-      ctx.ellipse(0, r * 0.2, r * 0.52, r * 0.58, 0, Math.PI * 1.12, Math.PI * 1.88);
+      ctx.lineWidth = r * 0.04;
+      ctx.strokeStyle = rim;
       ctx.stroke();
       break;
     }

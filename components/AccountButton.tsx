@@ -311,10 +311,13 @@ export function AccountButton({
         )}
 
       <style jsx>{`
+        /* Accent lives in the tint/border; text stays white so it never sits
+           green-on-green (matches .pink / .gold in globals.css). */
         .save-pill,
         .login-pill {
-          color: var(--teal);
+          background: rgba(25, 211, 189, 0.14);
           border-color: var(--teal);
+          color: var(--ink);
         }
         .backdrop {
           position: fixed;

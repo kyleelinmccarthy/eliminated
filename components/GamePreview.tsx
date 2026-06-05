@@ -11,7 +11,7 @@ import type { Minigame, GameContext } from "@/lib/server/games/Minigame";
 import { renderFrame } from "@/lib/client/render/renderers";
 import { FxSystem } from "@/lib/client/render/fx";
 import { MAPS } from "@/lib/shared/maps";
-import { FREE_CHARACTERS } from "@/lib/shared/characters";
+import { FREE_CHARACTERS, characterVariants } from "@/lib/shared/characters";
 import { makeRng, shuffle } from "@/lib/shared/util";
 import { TICK_MS, ARENA_W, ARENA_H } from "@/lib/shared/constants";
 import type { GameId, Snapshot } from "@/lib/shared/types";
@@ -29,8 +29,8 @@ const DESIGN_H = ARENA_H;
 // in lib/client/render/renderers.ts). Anything else (e.g. an in-progress game
 // with no client renderer yet) gets a placeholder instead of a blank canvas.
 const RENDERABLE = new Set<GameId>([
-  "redlight", "tag", "mingle", "boomerang", "dodgeball", "musicalchairs", "prophunt", "koth", // arena
-  "glassbridge", "tugofwar", "rpsminusone", "jumprope", "present", // discrete
+  "redlight", "tag", "mingle", "boomerang", "dodgeball", "musicalchairs", "prophunt", "keepyuppy", "koth", // arena
+  "glassbridge", "tugofwar", "rpsminusone", "jumprope", "present", "simonsays", "chutesladders", // discrete
 ]);
 
 // Games rendered from a single player's perspective — they need a live "you" or
@@ -54,6 +54,7 @@ function livingIds(snap: Snapshot): string[] {
   if (snap.actors) return snap.actors.filter((a) => a.alive).map((a) => a.id);
   if (d.walkers) return d.walkers.filter((w: any) => w.alive).map((w: any) => w.id);
   if (d.jumpers) return d.jumpers.filter((j: any) => j.alive).map((j: any) => j.id);
+  if (d.contestants) return d.contestants.filter((c: any) => c.alive).map((c: any) => c.id);
   if (d.pullers) return d.pullers.map((p: any) => p.id);
   if (d.duels) {
     const ids: string[] = [];
@@ -80,6 +81,7 @@ export function GamePreview({ gameId, bots = 10 }: { gameId: GameId; bots?: numb
     const fx = new FxSystem();
     const deaths = new Map<string, number>(); // actorId -> first-seen-dead time (coffin drop-in)
     let numbers = new Map<string, number>(); // actorId -> Squid Game number badge
+    let variants = new Map<string, number>(); // actorId -> same-icon accent slot
     let game: Minigame | null = null;
     let mapId = MAPS[0].id;
     let youId: string | null = null; // a live participant, for first-person renderers
@@ -105,6 +107,7 @@ export function GamePreview({ gameId, bots = 10 }: { gameId: GameId; bots?: numb
       const map = MAPS[(hash(gameId) + loopN) % MAPS.length];
       mapId = map.id;
       numbers = new Map(players.map((p, i) => [p.id, 1 + ((i * 53 + loopN * 7) % 456)]));
+      variants = characterVariants(players);
       const gctx: GameContext = {
         players,
         map,
@@ -163,7 +166,7 @@ export function GamePreview({ gameId, bots = 10 }: { gameId: GameId; bots?: numb
       // render at the design resolution, scaled to fill the preview (no letterbox)
       ctx!.save();
       ctx!.scale(cw / DESIGN_W, ch / DESIGN_H);
-      renderFrame(ctx!, DESIGN_W, DESIGN_H, cur, prev, alpha, { youId, time: now, fx, mapId, numbers, deaths });
+      renderFrame(ctx!, DESIGN_W, DESIGN_H, cur, prev, alpha, { youId, time: now, fx, mapId, numbers, variants, deaths });
       ctx!.restore();
     }
 

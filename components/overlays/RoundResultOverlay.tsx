@@ -5,6 +5,7 @@ import { audio } from "@/lib/client/audio";
 import { GAMES } from "@/lib/shared/games";
 import { CURRENCY_ICON } from "@/lib/shared/constants";
 import { formatPlayerNumber } from "@/lib/shared/util";
+import { characterVariants } from "@/lib/shared/characters";
 import { BlobAvatar } from "../BlobAvatar";
 
 export function RoundResultOverlay() {
@@ -21,12 +22,13 @@ export function RoundResultOverlay() {
   if (!result) return null;
   const g = GAMES[result.game];
   const byId = new Map(room.players.map((p) => [p.id, p]));
+  const variants = characterVariants(room.players);
 
   return (
     <div className="rr">
       <div className="rr-head">
         <span style={{ fontSize: "2rem" }}>{g.icon}</span>
-        <h2>{g.name} — The Reckoning</h2>
+        <h2><span className="title-font">{g.name}</span> — The Reckoning</h2>
       </div>
       <div className="rr-list scroll">
         {result.entries.map((e) => {
@@ -35,7 +37,7 @@ export function RoundResultOverlay() {
           return (
             <div key={e.playerId} className={`rr-row ${e.playerId === youId ? "me" : ""} ${e.survived ? "alive" : "dead"}`}>
               <span className="place">#{e.placement}</span>
-              <BlobAvatar characterId={p.characterId} size={42} anim={e.survived ? "cheer" : "dead"} />
+              <BlobAvatar characterId={p.characterId} size={42} anim={e.survived ? "cheer" : "dead"} variant={variants.get(p.id) ?? 0} />
               <span className="rnum" title="Player number">{formatPlayerNumber(p.number)}</span>
               <span className="rname">
                 {p.name}

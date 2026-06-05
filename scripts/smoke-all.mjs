@@ -3,7 +3,7 @@
 import WebSocket from "ws";
 
 const URL = process.env.WS || "ws://localhost:3100/ws";
-const GAMES = ["redlight", "tag", "mingle", "glassbridge", "tugofwar", "rpsminusone", "jumprope", "boomerang", "dodgeball", "musicalchairs", "present", "prophunt", "koth"];
+const GAMES = ["redlight", "tag", "mingle", "glassbridge", "tugofwar", "rpsminusone", "jumprope", "boomerang", "dodgeball", "musicalchairs", "present", "prophunt", "chutesladders", "simonsays", "keepyuppy", "koth"];
 const results = {};
 let remaining = GAMES.length;
 

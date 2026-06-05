@@ -13,6 +13,9 @@ import { Dodgeball } from "./Dodgeball";
 import { MusicalChairs } from "./MusicalChairs";
 import { PresentSwap } from "./PresentSwap";
 import { PropHunt } from "./PropHunt";
+import { ChutesAndLadders } from "./ChutesAndLadders";
+import { SimonSays } from "./SimonSays";
+import { KeepyUppy } from "./KeepyUppy";
 import { KingOfTheHill } from "./KingOfTheHill";
 
 const CTORS: Record<GameId, new (ctx: GameContext) => Minigame> = {
@@ -28,6 +31,9 @@ const CTORS: Record<GameId, new (ctx: GameContext) => Minigame> = {
   musicalchairs: MusicalChairs,
   present: PresentSwap,
   prophunt: PropHunt,
+  chutesladders: ChutesAndLadders,
+  simonsays: SimonSays,
+  keepyuppy: KeepyUppy,
   koth: KingOfTheHill,
 };
 

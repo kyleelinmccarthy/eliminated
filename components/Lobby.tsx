@@ -6,6 +6,7 @@ import { GAMES, ALL_GAME_IDS } from "@/lib/shared/games";
 import type { GameId, SeriesMode } from "@/lib/shared/types";
 import { CURRENCY, CURRENCY_ICON, MIN_TO_START } from "@/lib/shared/constants";
 import { formatPlayerNumber } from "@/lib/shared/util";
+import { characterVariants } from "@/lib/shared/characters";
 import { BlobAvatar } from "./BlobAvatar";
 import { CharacterPicker } from "./CharacterPicker";
 import { Chat } from "./Chat";
@@ -68,6 +69,8 @@ export function Lobby() {
   const emoteBubbles = useEmoteBubbles(room.players);
   const humans = room.players.filter((p) => !p.isBot);
   const canStart = room.players.length >= MIN_TO_START || room.config.botFill;
+  // accent rims so two players on the same blob aren't a confusing pair
+  const variants = characterVariants(room.players);
 
   function patch(p: any) {
     audio.sfx("click");
@@ -129,7 +132,7 @@ export function Lobby() {
                 )}
                 <span className="pnum" title="Player number">{formatPlayerNumber(p.number)}</span>
                 <div className="pcard-av">
-                  <BlobAvatar characterId={p.characterId} size={64} animate={p.ready} anim={p.ready ? "cheer" : "idle"} />
+                  <BlobAvatar characterId={p.characterId} size={64} animate={p.ready} anim={p.ready ? "cheer" : "idle"} variant={variants.get(p.id) ?? 0} />
                 </div>
                 <div className="pcard-name">
                   {p.isHost && <span title="Host">👑 </span>}
@@ -467,9 +470,11 @@ export function Lobby() {
           border: 2px solid var(--line);
           border-radius: 999px;
           padding: 5px 12px;
-          font-size: 0.78rem;
+          font-family: var(--font-game);
+          font-size: 0.72rem;
+          letter-spacing: 0;
           color: var(--ink-dim);
-          font-weight: 700;
+          font-weight: 400;
         }
         .chip.on {
           border-color: var(--teal);

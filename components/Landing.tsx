@@ -368,9 +368,10 @@ export function Landing() {
           align-items: flex-start;
         }
         .game-card .game-name {
-          font-size: 1.18rem;
-          line-height: 1.12;
-          letter-spacing: 0.2px;
+          font-size: 0.98rem;
+          line-height: 1.16;
+          letter-spacing: 0;
+          text-wrap: balance;
         }
         /* Three RPS hands, turned sideways and clustered into one board-like icon.
            Same font-size as the other cards' icons so the title baseline aligns. */

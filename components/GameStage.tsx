@@ -6,6 +6,7 @@ import { renderFrame } from "@/lib/client/render/renderers";
 import { FxSystem } from "@/lib/client/render/fx";
 import { GAMES } from "@/lib/shared/games";
 import { getMap } from "@/lib/shared/maps";
+import { characterVariants } from "@/lib/shared/characters";
 import { ARENA_W, ARENA_H, TICK_MS } from "@/lib/shared/constants";
 import { formatPlayerNumber } from "@/lib/shared/util";
 import type { Snapshot } from "@/lib/shared/types";
@@ -41,6 +42,8 @@ function liveCount(snap: Snapshot | null): number {
   if (snap.actors) return snap.actors.filter((a) => a.alive).length;
   if (d.walkers) return d.walkers.filter((w: any) => w.alive).length;
   if (d.jumpers) return d.jumpers.filter((j: any) => j.alive).length;
+  if (d.climbers) return d.climbers.filter((c: any) => c.alive).length;
+  if (d.contestants) return d.contestants.filter((c: any) => c.alive).length;
   if (d.pullers) return d.pullers.length;
   if (d.duels) return d.duels.filter((x: any) => x.status !== "done" || x.winner).length;
   return 0;
@@ -53,6 +56,8 @@ function aliveStates(snap: Snapshot): Map<string, boolean> {
   if (snap.actors) for (const a of snap.actors) m.set(a.id, !!a.alive);
   else if (d.walkers) for (const w of d.walkers) m.set(w.id, !!w.alive);
   else if (d.jumpers) for (const j of d.jumpers) m.set(j.id, !!j.alive);
+  else if (d.climbers) for (const c of d.climbers) m.set(c.id, !!c.alive);
+  else if (d.contestants) for (const c of d.contestants) m.set(c.id, !!c.alive);
   return m;
 }
 
@@ -105,11 +110,20 @@ function youAliveIn(snap: Snapshot | null, youId: string | null): boolean {
   }
   if (d.walkers) {
     const w = d.walkers.find((x: any) => x.id === youId);
-    return w ? w.alive : true;
+    // not in the field at all => a spectator, not "alive" (hides the controls)
+    return w ? w.alive : false;
   }
   if (d.jumpers) {
     const j = d.jumpers.find((x: any) => x.id === youId);
-    return j ? j.alive : true;
+    return j ? j.alive : false;
+  }
+  if (d.climbers) {
+    const c = d.climbers.find((x: any) => x.id === youId);
+    return c ? c.alive : false;
+  }
+  if (d.contestants) {
+    const c = d.contestants.find((x: any) => x.id === youId);
+    return c ? c.alive : false;
   }
   return true;
 }
@@ -121,12 +135,15 @@ function PlayingView() {
   const youId = useGame((s) => s.youId);
   const [hud, setHud] = useState({ timeLeft: 0, alive: 0, game: room?.currentGame, youDown: false });
   const [showElim, setShowElim] = useState(false);
+  const [goAt, setGoAt] = useState(0); // server ms the round unfreezes (drives the GO countdown)
+  const goAtRef = useRef(0);
   const wasDown = useRef(false);
   const aliveThisRound = useRef(false);
   const lastSnapT = useRef(0);
   const prevLight = useRef<string>("");
   const prevPhase = useRef<string>("");
   const numbersRef = useRef<Map<string, number>>(new Map());
+  const variantsRef = useRef<Map<string, number>>(new Map());
   const prevAliveRef = useRef<Map<string, boolean>>(new Map());
   const deathAtRef = useRef<Map<string, number>>(new Map());
   const lastAnnounceRef = useRef(0);
@@ -138,6 +155,8 @@ function PlayingView() {
     const m = new Map<string, number>();
     for (const p of room?.players ?? []) m.set(p.id, p.number);
     numbersRef.current = m;
+    // same-icon disambiguation rims, keyed by player id like the numbers above
+    variantsRef.current = characterVariants(room?.players ?? []);
   }, [room?.players]);
 
   useEffect(() => {
@@ -151,7 +170,9 @@ function PlayingView() {
     prevAliveRef.current = new Map();
     deathAtRef.current = new Map();
     lastAnnounceRef.current = 0;
+    goAtRef.current = 0;
     setShowElim(false);
+    setGoAt(0);
   }, [room?.currentGame, room?.roundIndex]);
 
   // stop the musical-chairs loop whenever we leave the play phase
@@ -221,12 +242,17 @@ function PlayingView() {
               deathAtRef.current.delete(id);
             }
           }
+          // pre-round "3·2·1·GO" hold: server advertises when play begins
+          if (cur.startAt && cur.startAt !== goAtRef.current) {
+            goAtRef.current = cur.startAt;
+            setGoAt(cur.startAt);
+          }
           lastSnapT.current = cur.t;
         }
         const alpha = Math.min(1, (now - snapBuffer.recvAt) / TICK_MS);
         fx.update(dt);
         const mapId = room?.currentMapId ?? null;
-        renderFrame(ctx, W, H, cur, prev, alpha, { youId, time: now, fx, mapId, numbers: numbersRef.current, deaths: deathAtRef.current });
+        renderFrame(ctx, W, H, cur, prev, alpha, { youId, time: now, fx, mapId, numbers: numbersRef.current, variants: variantsRef.current, deaths: deathAtRef.current });
       } else {
         ctx.clearRect(0, 0, W, H);
       }
@@ -287,6 +313,10 @@ function PlayingView() {
         <MuteButton />
       </div>
 
+      {playing && goAt > 0 && (
+        <GoOverlay startAt={goAt} key={`${room?.currentGame}-${room?.roundIndex}`} />
+      )}
+
       {showElim && playing && <EliminatedOverlay number={myNumber} />}
 
       {hud.youDown && playing && !showElim && (
@@ -332,6 +362,9 @@ function PlayingView() {
           border-radius: 14px;
           padding: 7px 14px;
           backdrop-filter: blur(8px);
+        }
+        .hud-pill .title-font {
+          font-size: 0.92rem;
         }
         .hud-pill.timer strong {
           color: var(--yellow);
@@ -474,6 +507,92 @@ function LeaveGameButton() {
   );
 }
 
+// On-field "3 · 2 · 1 · GO!" shown over the frozen starting board at the top of a
+// round. The server holds all logic/input until `startAt`; this just renders the
+// beat. pointer-events:none so it never eats a tap meant for the controls.
+function GoOverlay({ startAt }: { startAt: number }) {
+  const [label, setLabel] = useState<string | null>(null);
+  const lastBeep = useRef(-1);
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const remain = startAt - Date.now();
+      if (remain > 0) {
+        const secs = Math.min(3, Math.ceil(remain / 1000));
+        setLabel(String(secs));
+        if (secs !== lastBeep.current) {
+          audio.sfx("beep");
+          lastBeep.current = secs;
+        }
+        raf = requestAnimationFrame(tick);
+      } else if (remain > -650) {
+        if (lastBeep.current !== 0) {
+          audio.sfx("good");
+          lastBeep.current = 0;
+        }
+        setLabel("GO!");
+        raf = requestAnimationFrame(tick);
+      } else {
+        setLabel(null);
+      }
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [startAt]);
+
+  if (label === null) return null;
+  const go = label === "GO!";
+  return (
+    <div className="go-wrap" aria-hidden>
+      <div key={label} className={`go-num ${go ? "go" : ""}`}>
+        {label}
+      </div>
+      <style jsx>{`
+        .go-wrap {
+          position: absolute;
+          inset: 0;
+          z-index: 25;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          pointer-events: none;
+        }
+        .go-num {
+          font-family: var(--font-display);
+          font-weight: 800;
+          font-size: clamp(5rem, 22vw, 13rem);
+          line-height: 1;
+          color: #fff;
+          text-shadow:
+            0 0 30px rgba(255, 46, 90, 0.55),
+            0 6px 0 rgba(0, 0, 0, 0.35);
+          animation: goPop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+        }
+        .go-num.go {
+          color: var(--yellow);
+          text-shadow:
+            0 0 40px rgba(255, 213, 79, 0.8),
+            0 6px 0 rgba(0, 0, 0, 0.35);
+        }
+        @keyframes goPop {
+          0% {
+            opacity: 0;
+            transform: scale(2.2);
+          }
+          35% {
+            opacity: 1;
+            transform: scale(0.92);
+          }
+          100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function EliminatedOverlay({ number }: { number?: number }) {
   useEffect(() => {
     audio.speak("You have been eliminated.");
@@ -587,6 +706,21 @@ function handleSnapshotAudio(
         if (phase === "scramble") audio.sfx("bad");
       }
       prevPhase.current = phase;
+    }
+  }
+  if (snap.game === "simonsays") {
+    const d: any = snap.data || {};
+    // announce each new order exactly once, when its reaction window opens
+    const key = `${d.phase}:${d.beat}`;
+    if (d.phase === "call" && d.command && key !== prevPhase.current) {
+      if (d.command.freeze) {
+        audio.sfx("alarm");
+        audio.speak("Freeze!");
+      } else {
+        audio.sfx("beep");
+        audio.speak(`Simon says, ${d.command.label}`);
+      }
+      prevPhase.current = key;
     }
   }
   playFxSounds(snap.fx);

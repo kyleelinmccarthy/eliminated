@@ -37,6 +37,11 @@ export interface PowerupFieldOpts {
   // circle* instead of the rectangular margin — e.g. the shrinking safe island in
   // King of the Lava Island, so powerups never appear out in the lava.
   spawnCircle?: () => { x: number; y: number; r: number };
+  // Optional set of dynamic spawn regions (e.g. the several sinking islands in
+  // King of the Lava Islands). A spawn lands on a *random* one, weighted by its
+  // usable area so bigger islands host more orbs. If this returns an empty list
+  // there's no safe ground right now, so the spawn is skipped (never the lava).
+  spawnRegions?: () => { x: number; y: number; r: number }[];
 }
 
 export class PowerupField {
@@ -52,22 +57,52 @@ export class PowerupField {
     this.spawnTimer -= dt;
     const max = this.opts.max ?? 4;
     if (this.spawnTimer <= 0 && this.pickups.length < max) {
-      const every = this.opts.every ?? 3.5;
-      this.spawnTimer = every + this.rng() * every;
-      this.pickups.push(this.spawn());
+      const pk = this.spawn();
+      if (pk) {
+        const every = this.opts.every ?? 3.5;
+        this.spawnTimer = every + this.rng() * every;
+        this.pickups.push(pk);
+      } else {
+        // no safe ground to spawn on right now — try again shortly
+        this.spawnTimer = 0.6;
+      }
     }
     for (const p of this.pickups) p.bob += dt * 4;
   }
 
-  private spawn(): Pickup {
+  private spawn(): Pickup | null {
     const goodW = this.opts.goodWeight ?? 0.58;
     const pool = this.rng() < goodW ? GOOD_POWERUPS : BAD_POWERUPS;
     const kind = pool[Math.floor(this.rng() * pool.length)];
     const margin = this.opts.margin ?? 150;
     let x: number;
     let y: number;
+    const regions = this.opts.spawnRegions?.();
     const circle = this.opts.spawnCircle?.();
-    if (circle) {
+    if (regions) {
+      if (!regions.length) return null; // nowhere safe — skip this spawn
+      // pick a region weighted by usable area, then a uniform point inside it
+      const usable = regions.map((c) => Math.max(0, c.r - margin));
+      const weights = usable.map((u) => u * u);
+      const total = weights.reduce((a, b) => a + b, 0);
+      let pick = regions[0];
+      let pickR = usable[0];
+      if (total > 0) {
+        let r = this.rng() * total;
+        for (let i = 0; i < regions.length; i++) {
+          r -= weights[i];
+          if (r <= 0) {
+            pick = regions[i];
+            pickR = usable[i];
+            break;
+          }
+        }
+      }
+      const ang = this.rng() * Math.PI * 2;
+      const rad = Math.sqrt(this.rng()) * pickR;
+      x = pick.x + Math.cos(ang) * rad;
+      y = pick.y + Math.sin(ang) * rad;
+    } else if (circle) {
       // Uniform point within the circle (sqrt keeps it even, not center-biased),
       // kept `margin` clear of the edge so a fresh spawn never lands in the lava.
       const ang = this.rng() * Math.PI * 2;

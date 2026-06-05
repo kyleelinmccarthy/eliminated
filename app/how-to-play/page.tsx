@@ -36,7 +36,7 @@ export default function HowToPlay() {
           …and, statistically, how to die.
         </div>
         <p className="dim">
-          <strong>Eliminated</strong> is a friendly party game for 2–16 blobs, in the sense that you arrive with friends
+          <strong>Eliminated</strong> is a friendly party game for 2–8 blobs, in the sense that you arrive with friends
           and leave with fewer. The Game Master runs a <em>mystery</em> gauntlet of beloved childhood games, each
           retrofitted with a body count. The goal is brutally simple: <strong>outlast everyone</strong>. Survive a game
           and you move on to the next; lose one and your blob is sealed into a tasteful pink-ribboned box while the
@@ -92,7 +92,7 @@ export default function HowToPlay() {
                 <div key={id} className="card htp-game">
                   <div className="row" style={{ gap: 10 }}>
                     <span style={{ fontSize: "2rem" }}>{g.icon}</span>
-                    <strong style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>{g.name}</strong>
+                    <strong style={{ fontFamily: "var(--font-game)", fontSize: "1rem", letterSpacing: 0 }}>{g.name}</strong>
                   </div>
                   <GamePreview gameId={id} />
                   <p className="tiny" style={{ margin: "6px 0" }}>{g.rules}</p>

@@ -555,3 +555,30 @@ export function getCharacter(id: string): Character {
 export function randomCharacterId(): string {
   return FREE_CHARACTERS[Math.floor(Math.random() * FREE_CHARACTERS.length)];
 }
+
+// When several players pick the SAME blob they're easy to mix up, so we hand
+// everyone sharing an icon a 1-based "variant" — their slot within that icon's
+// group — which the renderer turns into a distinct accent rim. Players on a
+// unique icon get 0 (no marker). Ids are sorted within each group so the
+// assignment is stable regardless of roster order (and survives someone
+// leaving). Keyed by player id; look up the same way as Squid-Game numbers.
+export function characterVariants(
+  players: { id: string; characterId: string }[],
+): Map<string, number> {
+  const groups = new Map<string, string[]>();
+  for (const p of players) {
+    const g = groups.get(p.characterId);
+    if (g) g.push(p.id);
+    else groups.set(p.characterId, [p.id]);
+  }
+  const out = new Map<string, number>();
+  for (const ids of groups.values()) {
+    if (ids.length < 2) {
+      out.set(ids[0], 0);
+      continue;
+    }
+    ids.sort();
+    ids.forEach((id, i) => out.set(id, i + 1));
+  }
+  return out;
+}

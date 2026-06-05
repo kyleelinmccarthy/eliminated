@@ -4,6 +4,7 @@ import { useGame, net } from "@/lib/client/net";
 import { audio } from "@/lib/client/audio";
 import { CURRENCY, CURRENCY_ICON } from "@/lib/shared/constants";
 import { formatPlayerNumber } from "@/lib/shared/util";
+import { characterVariants } from "@/lib/shared/characters";
 import { BlobAvatar } from "../BlobAvatar";
 import { AuthEntry } from "../AuthEntry";
 
@@ -25,6 +26,8 @@ export function SeriesResultOverlay() {
   const podium = result.standings.slice(0, 3);
   const order = [1, 0, 2]; // visual: 2nd, 1st, 3rd
   const me = result.standings.find((s) => s.playerId === youId);
+  // keep the same-icon rims consistent with the lobby / in-game roster
+  const variants = characterVariants(room.players);
 
   return (
     <div className="sr">
@@ -51,7 +54,7 @@ export function SeriesResultOverlay() {
           return (
             <div key={s.playerId} className={`slot rank${rank} ${s.playerId === youId ? "me" : ""}`}>
               <div className="pblob">
-                <BlobAvatar characterId={s.characterId} size={rank === 1 ? 96 : 72} animate anim="cheer" />
+                <BlobAvatar characterId={s.characterId} size={rank === 1 ? 96 : 72} animate anim="cheer" variant={variants.get(s.playerId) ?? 0} />
               </div>
               <div className="pname">{s.name}</div>
               <div className="ptitle">{s.title}</div>
@@ -81,7 +84,7 @@ export function SeriesResultOverlay() {
           {result.standings.map((s) => (
             <div key={s.playerId} className={`frow ${s.playerId === youId ? "me" : ""}`}>
               <span className="fplace">#{s.placement}</span>
-              <BlobAvatar characterId={s.characterId} size={30} />
+              <BlobAvatar characterId={s.characterId} size={30} variant={variants.get(s.playerId) ?? 0} />
               <span className="fnum" title="Player number">{formatPlayerNumber(s.number)}</span>
               <span className="fname">
                 {s.name}

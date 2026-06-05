@@ -10,6 +10,11 @@ const FINISH_X = ARENA_W - 120; // finish line near the right edge (Doll lives p
 const TIME_LIMIT = 70; // seconds
 const GRACE = 0.38; // seconds after red before detection is lethal
 const MOVE_EPS = 12; // units/sec considered "moving"
+// This game runs slower than the shared PLAYER_SPEED (240) on purpose: the race
+// should read as a tense creep toward the Doll, not a frantic zoom. Applies to
+// blobs and bots alike (bots share moveActor), so it fixes the "too fast" feel
+// for both. Easy to tune.
+const RACE_SPEED = 150; // units/sec, this game only
 
 export class RedLightGreenLight extends ArenaGame {
   id: GameId = "redlight";
@@ -21,6 +26,7 @@ export class RedLightGreenLight extends ArenaGame {
   private elimOrder: { id: string; note?: string }[] = [];
 
   start(): void {
+    this.speed = RACE_SPEED;
     const ps = this.ctx.players;
     const n = ps.length;
     // spread the starting line vertically along the left edge
@@ -38,12 +44,13 @@ export class RedLightGreenLight extends ArenaGame {
   private nextLight(first = false) {
     if (first || this.light === "red") {
       this.light = "green";
-      // capped so a full-sprint green (max 3.0s ≈ 720u) can't cover the whole
+      // Roomier green windows now that blobs move slower, but still capped so a
+      // single full-sprint green (max 3.6s ≈ 540u at RACE_SPEED) can't clear the
       // ~1070u track — you always need at least two greens to reach the Doll.
-      this.phaseDur = 1.2 + this.ctx.rng() * 1.8;
+      this.phaseDur = 1.6 + this.ctx.rng() * 2.0;
     } else {
       this.light = "red";
-      this.phaseDur = 1.0 + this.ctx.rng() * 1.8;
+      this.phaseDur = 1.2 + this.ctx.rng() * 1.7;
       this.redLethalIn = GRACE;
       this.boom("ring", FINISH_X + 30, ARENA_H / 2, { color: "#ff1744", scale: 2 });
     }

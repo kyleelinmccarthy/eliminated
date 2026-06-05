@@ -19,7 +19,8 @@
   --line-bright: rgba(255, 46, 136, 0.6);
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   --font-title: "Bungee", "Baloo 2", system-ui, sans-serif; /* the ELIMINATED wordmark — do not change */
-  --font-heading: "DM Serif Display", Georgia, "Times New Roman", serif; /* game names + headers */
+  --font-game: "Bungee", "Baloo 2", system-ui, sans-serif; /* the ELIMINATED wordmark font — used for all headings + game names */
+  --font-heading: var(--font-game); /* headers + labels — now the ELIMINATED font (was DM Serif Display) */
   --font-heading-weight: 400;
   --font-display: "Baloo 2", system-ui, sans-serif; /* UI chrome: buttons, inputs, labels */
   --font-body: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -57,10 +58,11 @@ h4,
   letter-spacing: 0.3px;
   margin: 0;
 }
-/* game names + any title text that isn't a semantic heading */
+/* game names — the chunky ELIMINATED wordmark font */
 .title-font {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
+  font-family: var(--font-game);
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 a {

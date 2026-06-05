@@ -10,7 +10,7 @@ export const PLAYER_RADIUS = 26;
 export const PLAYER_SPEED = 240; // units / second
 
 export const ROOM_CODE_LEN = 4;
-export const MAX_PLAYERS = 16;
+export const MAX_PLAYERS = 8;
 export const MIN_TO_START = 2;
 
 export const CURRENCY = "Marbles";

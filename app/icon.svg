@@ -5,8 +5,8 @@
       <stop offset="1" stop-color="#d11668"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="15" fill="#0d1d1a"/>
-  <rect x="1.75" y="1.75" width="60.5" height="60.5" rx="13.25" stroke="#ff2e88" stroke-opacity="0.28" stroke-width="2.5"/>
+  <circle cx="32" cy="32" r="32" fill="#000000"/>
+  <circle cx="32" cy="32" r="30.75" stroke="#ff2e88" stroke-opacity="0.28" stroke-width="2.5"/>
   <path d="M32 9 C 18.5 9 9 19.5 9 32 C 9 41 11.5 48 15.5 52.5 C 19 56 22.5 53.2 26.5 54.2 C 29.7 55 34.3 55 37.5 54.2 C 41.5 53.2 45 56 48.5 52.5 C 52.5 48 55 41 55 32 C 55 19.5 45.5 9 32 9 Z" fill="url(#blob)"/>
   <circle cx="20.5" cy="39" r="3.1" fill="#ff9ec4" opacity="0.75"/>
   <circle cx="43.5" cy="39" r="3.1" fill="#ff9ec4" opacity="0.75"/>

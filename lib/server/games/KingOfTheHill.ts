@@ -1,7 +1,9 @@
-// King of Lava Island — the series FINALE. A central safe "island" shrinks in
-// waves; everything outside is lava. Linger in lava and you burn out. Blobs
-// shove each other, scramble for powerups (a shield is gold), and fight for the
-// crown. Last blob on the hill is the champion. Decisive by design.
+// King of the Lava Islands — the series FINALE. The floor is lava; a scattering
+// of islands of various sizes rises, holds, then SINKS back into the magma. You
+// have to hop from island to island to stay off the floor, scramble for powerups
+// (a shield is gold), and shove rivals into the lava. As the round wears on the
+// islands get scarcer and smaller, then it collapses to one shrinking last-stand
+// island. Last blob not-on-fire is champion. Decisive by design.
 
 import { ArenaGame, type GameContext, type ArenaActor, type MinigameResult, buildRanking } from "./Minigame";
 import type { GameId, Snapshot } from "../../shared/types";
@@ -9,22 +11,33 @@ import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { dist } from "../../shared/util";
 import { PowerupField } from "./Powerups";
 
-const START_R = 330;
-const MIN_R = 72;
-const FINAL_R = 22; // sudden-death floor — too small to hold a crowd
-const NUM_WAVES = 8;
-const WAVE_INTERVAL = 4.2;
-const BURN_GRACE = 0.85; // seconds in lava before you go
 const TIME_CAP = 60;
+const BURN_GRACE = 0.95; // seconds standing in lava before you burn out
+
+// island sizing (arena units)
+const R_SMALL = 56;
+const R_LARGE = 150;
+const FINAL_R = 26; // sudden-death floor — too small to hold a crowd
+
+interface Island {
+  id: number;
+  x: number;
+  y: number;
+  r: number; // current (eased) radius
+  targetR: number; // radius r eases toward
+  maxR: number; // full size once risen
+  phase: "rising" | "stable" | "sinking";
+  timer: number; // seconds until this phase ends (used while stable)
+  final?: boolean; // the chosen last-stand island in sudden death
+}
 
 export class KingOfTheHill extends ArenaGame {
   id: GameId = "koth";
   private cx = ARENA_W / 2;
   private cy = ARENA_H / 2;
-  private safeR = START_R;
-  private targetR = START_R;
-  private waveT = WAVE_INTERVAL;
-  private step = (START_R - MIN_R) / NUM_WAVES;
+  private islands: Island[] = [];
+  private islandSeq = 1;
+  private spawnTimer = 1.5;
   private suddenDeath = false;
   private kingId: string | null = null;
   private powerups: PowerupField;
@@ -32,56 +45,70 @@ export class KingOfTheHill extends ArenaGame {
 
   constructor(ctx: GameContext) {
     super(ctx);
-    // Spawn powerups *inside the current safe island* (a circle), kept clear of
-    // its edge — never out in the lava — and they shrink/cull with it (see tick).
+    // Powerups spawn on a *random* island (area-weighted), kept clear of its
+    // molten edge — never out in the lava — and they sink with it (see cull).
     this.powerups = new PowerupField(ctx.rng, {
-      every: 4.5,
-      max: 3,
+      every: 4,
+      max: 4,
       goodWeight: 0.6,
-      margin: 64,
-      spawnCircle: () => ({ x: this.cx, y: this.cy, r: this.safeR }),
+      margin: 40,
+      spawnRegions: () =>
+        this.islands.filter((i) => i.phase !== "sinking" && i.r > 46).map((i) => ({ x: i.x, y: i.y, r: i.r })),
     });
   }
 
   start(): void {
+    // an opening spread of islands of various sizes, all already risen
+    const spread: Array<[number, number, number]> = [
+      [this.cx, this.cy, R_LARGE], // central anchor
+      [this.cx - 360, this.cy - 150, R_SMALL + 34],
+      [this.cx + 360, this.cy - 160, R_SMALL + 56],
+      [this.cx - 340, this.cy + 165, R_SMALL + 22],
+      [this.cx + 350, this.cy + 150, R_SMALL + 64],
+    ];
+    for (const [x, y, r] of spread) {
+      const isl = this.spawnIsland(r, { x, y });
+      isl.r = r; // start fully risen
+      isl.phase = "stable";
+      isl.timer = 4 + this.ctx.rng() * 6;
+    }
+
     const ps = this.ctx.players;
     ps.forEach((p, i) => {
       const ang = (i / ps.length) * Math.PI * 2;
-      const a = this.addActor(p, this.cx + Math.cos(ang) * 150, this.cy + Math.sin(ang) * 130);
+      const a = this.addActor(p, this.cx + Math.cos(ang) * 120, this.cy + Math.sin(ang) * 100);
       a.data!.burnT = 0;
       a.data!.kingT = 0;
     });
-    this.ctx.toast("The floor is LAVA! Hold the island, shove the rest!", "bad");
+    this.ctx.toast("The floor is LAVA! The islands are sinking — hop to stay alive!", "bad");
   }
 
   private aliveActors() {
     return [...this.actors.values()].filter((a) => a.alive);
   }
 
+  // the island a point is standing on (nearest center if several overlap), or null
+  private islandUnder(a: { x: number; y: number }): Island | null {
+    let best: Island | null = null;
+    let bd = Infinity;
+    for (const isl of this.islands) {
+      const d = dist(a.x, a.y, isl.x, isl.y);
+      if (d <= isl.r && d < bd) {
+        bd = d;
+        best = isl;
+      }
+    }
+    return best;
+  }
+
   tick(dt: number, _now: number): void {
     this.elapsed += dt;
     this.powerups.tick(dt);
 
-    // shrink the hill in waves, then sudden-death until just one blob remains
-    this.waveT -= dt;
-    if (this.waveT <= 0 && this.targetR > MIN_R) {
-      this.waveT = WAVE_INTERVAL;
-      this.targetR = Math.max(MIN_R, this.targetR - this.step);
-      this.boom("ring", this.cx, this.cy, { color: "#ff6d00", scale: this.targetR / 90 });
-      this.ctx.toast("🌋 The lava rises. So does the rent.", "bad");
-    } else if (this.targetR <= MIN_R && this.aliveActors().length > 1) {
-      // sudden death: close in relentlessly so the hill can't hold a crowd
-      if (!this.suddenDeath) {
-        this.suddenDeath = true;
-        this.ctx.toast("⚠️ SUDDEN DEATH — the island has had enough of all of you!", "bad");
-      }
-      this.targetR = Math.max(FINAL_R, this.targetR - dt * 16);
-    }
-    // ease the visible radius toward the target
-    this.safeR += (this.targetR - this.safeR) * Math.min(1, dt * 3);
+    this.updateIslands(dt);
 
-    // any powerup the lava has now reached is gone — no orbs stranded off-island
-    this.powerups.cull((p) => dist(p.x, p.y, this.cx, this.cy) <= this.safeR);
+    // any powerup the lava has now swallowed (no island under it) is gone
+    this.powerups.cull((p) => this.islands.some((isl) => dist(p.x, p.y, isl.x, isl.y) <= isl.r - 6));
 
     for (const a of this.actors.values()) {
       if (!a.alive) continue;
@@ -97,6 +124,123 @@ export class KingOfTheHill extends ArenaGame {
 
     const alive = this.aliveActors();
     if (alive.length <= 1 || this.elapsed >= TIME_CAP) this.done = true;
+  }
+
+  // --- island lifecycle: rise -> hold -> sink, with the field thinning over time ---
+  private updateIslands(dt: number): void {
+    const t = this.elapsed;
+
+    // Late in the round (or once the field has thinned) collapse to a single
+    // shrinking last-stand island so the game ends decisively — classic KotH.
+    if (!this.suddenDeath && (t >= TIME_CAP * 0.72 || this.aliveActors().length <= 2)) {
+      this.enterSuddenDeath();
+    }
+
+    if (this.suddenDeath) {
+      for (const isl of this.islands) {
+        if (isl.final) {
+          isl.targetR = Math.max(FINAL_R, isl.targetR - dt * 12); // close in relentlessly
+        } else {
+          isl.phase = "sinking";
+          isl.targetR = 0;
+        }
+      }
+    } else {
+      for (const isl of this.islands) {
+        if (isl.phase === "rising") {
+          isl.targetR = isl.maxR;
+          if (isl.r >= isl.maxR - 4) {
+            isl.phase = "stable";
+            isl.timer = 4 + this.ctx.rng() * 5;
+          }
+        } else if (isl.phase === "stable") {
+          isl.timer -= dt;
+          if (isl.timer <= 0) {
+            isl.phase = "sinking";
+            isl.targetR = 0;
+            this.boom("ring", isl.x, isl.y, { color: "#ff6d00", scale: isl.maxR / 90 });
+          }
+        } else {
+          isl.targetR = 0;
+        }
+      }
+
+      // keep enough islands afloat; the desired count eases down as time runs out
+      const desired = Math.max(2, Math.round(5 - (t / TIME_CAP) * 3)); // 5 -> 2
+      const afloat = this.islands.filter((i) => i.phase !== "sinking").length;
+      this.spawnTimer -= dt;
+      if (afloat < desired && this.spawnTimer <= 0) {
+        this.spawnTimer = 0.8 + this.ctx.rng() * 1.4;
+        const shrink = 1 - 0.35 * (t / TIME_CAP); // late islands run smaller & meaner
+        const maxR = (R_SMALL + this.ctx.rng() * (R_LARGE - R_SMALL)) * shrink;
+        this.spawnIsland(maxR);
+      }
+    }
+
+    // ease every radius toward its target, then drop the fully-sunken ones
+    for (const isl of this.islands) {
+      isl.r += (isl.targetR - isl.r) * Math.min(1, dt * 3);
+    }
+    this.islands = this.islands.filter((i) => i.final || !(i.phase === "sinking" && i.r < 3));
+  }
+
+  private enterSuddenDeath(): void {
+    this.suddenDeath = true;
+    // the last stand is whichever island currently holds the most blobs (ties to
+    // the biggest), so the crowd doesn't get rug-pulled off solid ground
+    let best: Island | null = null;
+    let bestScore = -1;
+    for (const isl of this.islands) {
+      const occ = this.aliveActors().filter((a) => dist(a.x, a.y, isl.x, isl.y) <= isl.r).length;
+      const score = occ * 10000 + isl.r;
+      if (score > bestScore) {
+        bestScore = score;
+        best = isl;
+      }
+    }
+    if (!best) best = this.spawnIsland(R_LARGE * 0.8, { x: this.cx, y: this.cy });
+    best.final = true;
+    best.phase = "stable";
+    best.targetR = Math.max(FINAL_R, Math.min(best.maxR, 140));
+    this.ctx.toast("⚠️ SUDDEN DEATH — one island left. Fight for it!", "bad");
+  }
+
+  private spawnIsland(maxR: number, at?: { x: number; y: number }): Island {
+    const pos = at ?? this.pickSpot(maxR);
+    const isl: Island = {
+      id: this.islandSeq++,
+      x: pos.x,
+      y: pos.y,
+      r: 6,
+      targetR: maxR,
+      maxR,
+      phase: "rising",
+      timer: 0,
+    };
+    this.islands.push(isl);
+    this.boom("ring", isl.x, isl.y, { color: "#80d8ff", scale: maxR / 90 });
+    return isl;
+  }
+
+  // find a spot for a new island: within the walls and a hop-able gap from the
+  // others (not so close it overlaps, not so far you can't cross before you burn)
+  private pickSpot(maxR: number): { x: number; y: number } {
+    const margin = maxR + 24;
+    let best = { x: this.cx, y: this.cy };
+    let bestGap = -Infinity;
+    for (let tries = 0; tries < 16; tries++) {
+      const x = margin + this.ctx.rng() * (ARENA_W - 2 * margin);
+      const y = margin + this.ctx.rng() * (ARENA_H - 2 * margin);
+      let gap = Infinity;
+      for (const isl of this.islands) gap = Math.min(gap, dist(x, y, isl.x, isl.y) - isl.maxR - maxR);
+      if (gap === Infinity) return { x, y };
+      if (gap > 40 && gap < 230) return { x, y }; // close enough to hop, far enough to read
+      if (gap > bestGap) {
+        bestGap = gap;
+        best = { x, y };
+      }
+    }
+    return best;
   }
 
   // gentle body collisions so blobs can shove rivals toward the lava
@@ -128,8 +272,7 @@ export class KingOfTheHill extends ArenaGame {
 
   private lava(dt: number): void {
     for (const a of this.aliveActors()) {
-      const d = dist(a.x, a.y, this.cx, this.cy);
-      const inLava = d > this.safeR;
+      const inLava = !this.islandUnder(a);
       a.burning = inLava;
       if (inLava) {
         a.data!.burnT = (a.data!.burnT || 0) + dt;
@@ -138,6 +281,9 @@ export class KingOfTheHill extends ArenaGame {
             a.shield = false;
             a.data!.burnT = 0;
             this.boom("shockwave", a.x, a.y, { color: "#80d8ff" });
+          } else if (this.aliveActors().length <= 1) {
+            // the lava won't take the last blob standing — someone wears the crown
+            a.data!.burnT = BURN_GRACE * 0.5;
           } else {
             a.alive = false;
             a.anim = "dead";
@@ -153,11 +299,15 @@ export class KingOfTheHill extends ArenaGame {
     }
   }
 
+  // the crown goes to whoever is most snugly centered on an island (a tiebreaker
+  // for the final ranking, and a fun thing to chase)
   private crown(dt: number): void {
     let king: ArenaActor | null = null;
     let bd = Infinity;
     for (const a of this.aliveActors()) {
-      const d = dist(a.x, a.y, this.cx, this.cy);
+      const isl = this.islandUnder(a);
+      if (!isl) continue;
+      const d = dist(a.x, a.y, isl.x, isl.y);
       if (d < bd) {
         bd = d;
         king = a;
@@ -167,46 +317,68 @@ export class KingOfTheHill extends ArenaGame {
     if (king) king.data!.kingT = (king.data!.kingT || 0) + dt;
   }
 
-  private botThink(a: ArenaActor): void {
-    const d = dist(a.x, a.y, this.cx, this.cy);
-    // base drive: head for the center, harder the closer to the edge
-    const inward = Math.min(1, d / Math.max(1, this.safeR));
-    let dx = (this.cx - a.x) / Math.max(1, d);
-    let dy = (this.cy - a.y) / Math.max(1, d);
-    let wx = dx * (0.4 + inward * 0.8);
-    let wy = dy * (0.4 + inward * 0.8);
+  // pick the safest island to head for: stay put if we're solidly on a non-sinking
+  // one, else hop to the nearest island that isn't a doomed sliver
+  private nearestIsland(a: ArenaActor, exclude: Island | null): Island | null {
+    let best: Island | null = null;
+    let bd = Infinity;
+    for (const isl of this.islands) {
+      if (isl === exclude) continue;
+      if (isl.phase === "sinking" && isl.r < PLAYER_RADIUS) continue;
+      const d = dist(a.x, a.y, isl.x, isl.y) - isl.r;
+      if (d < bd) {
+        bd = d;
+        best = isl;
+      }
+    }
+    return best;
+  }
 
-    // grab a nearby powerup if it's not deep in lava
+  private botThink(a: ArenaActor): void {
+    const here = this.islandUnder(a);
+    const safeHere = here && here.phase !== "sinking" && here.r > PLAYER_RADIUS * 1.4;
+    const target = safeHere ? here : this.nearestIsland(a, here) || here;
+
+    let wx = 0;
+    let wy = 0;
+    if (target) {
+      const d = dist(a.x, a.y, target.x, target.y) || 1;
+      // hustle toward an island we're off; once on it, just hug the center
+      const pull = d > target.r ? 1 : 0.3;
+      wx += ((target.x - a.x) / d) * pull;
+      wy += ((target.y - a.y) / d) * pull;
+    }
+
+    // grab a nearby powerup if it's close
     let pk: { x: number; y: number } | null = null;
     let pd = 240;
     for (const p of this.powerups.pickups) {
       const dpk = dist(a.x, a.y, p.x, p.y);
-      const pkSafe = dist(p.x, p.y, this.cx, this.cy) < this.safeR + 40;
-      if (pkSafe && dpk < pd) {
+      if (dpk < pd) {
         pd = dpk;
         pk = p;
       }
     }
     if (pk && this.ctx.rng() < 0.5) {
-      wx += ((pk.x - a.x) / (pd || 1)) * 0.7;
-      wy += ((pk.y - a.y) / (pd || 1)) * 0.7;
+      wx += ((pk.x - a.x) / (pd || 1)) * 0.6;
+      wy += ((pk.y - a.y) / (pd || 1)) * 0.6;
     }
 
-    // occasionally shove a rival who's nearer the edge than we are
-    if (this.ctx.rng() < 0.35) {
+    // when we share an island with a rival, give the nearest one a shove
+    if (here && this.ctx.rng() < 0.3) {
       let foe: ArenaActor | null = null;
-      let fd = 120;
+      let fd = 110;
       for (const o of this.aliveActors()) {
         if (o === a) continue;
         const od = dist(a.x, a.y, o.x, o.y);
-        if (od < fd && dist(o.x, o.y, this.cx, this.cy) > d) {
+        if (od < fd) {
           fd = od;
           foe = o;
         }
       }
       if (foe) {
-        wx += (foe.x - a.x) / (fd || 1);
-        wy += (foe.y - a.y) / (fd || 1);
+        wx += ((foe.x - a.x) / (fd || 1)) * 0.8;
+        wy += ((foe.y - a.y) / (fd || 1)) * 0.8;
       }
     }
 
@@ -221,9 +393,12 @@ export class KingOfTheHill extends ArenaGame {
       t: now,
       actors: [...this.actors.values()].map((a) => this.toActor(a)),
       data: {
-        cx: this.cx,
-        cy: this.cy,
-        safeR: Math.round(this.safeR),
+        islands: this.islands.map((i) => ({
+          x: Math.round(i.x),
+          y: Math.round(i.y),
+          r: Math.round(i.r),
+          final: i.final || undefined,
+        })),
         timeLeft: Math.max(0, TIME_CAP - this.elapsed),
         kingId: this.kingId,
         alive: this.aliveActors().length,

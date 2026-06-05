@@ -30,7 +30,7 @@ export const CHANGELOG: PatchEntry[] = [
     title: "We're Live (You're In Danger)",
     notes: [
       "Opened the doors to the public. Statistically, most of you will not leave through them.",
-      "16-player real-time lobbies, a mystery gauntlet of childhood games, and a Hall of Blobs that remembers everything you've done.",
+      "8-player real-time lobbies, a mystery gauntlet of childhood games, and a Hall of Blobs that remembers everything you've done.",
       "Added Patch Notes, a Privacy Policy, and Terms of Service — because going public means lawyers exist now. We're as surprised as you.",
     ],
   },

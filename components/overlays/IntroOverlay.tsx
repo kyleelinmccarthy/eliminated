@@ -104,8 +104,11 @@ export function IntroOverlay() {
           font-size: 5rem;
         }
         .gname {
-          font-size: clamp(2rem, 7vw, 4rem);
-          font-family: var(--font-display);
+          font-size: clamp(1.7rem, 5.6vw, 3.3rem);
+          font-family: var(--font-game);
+          line-height: 1.05;
+          letter-spacing: 0;
+          text-wrap: balance;
         }
         .tagline {
           color: var(--ink-dim);
