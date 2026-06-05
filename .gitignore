@@ -3,8 +3,10 @@ node_modules
 out
 build
 *.log
+# Secrets: ignore every .env variant, but keep the committed template.
 .env
-.env*.local
+.env.*
+!.env.example
 .DS_Store
 data/*.db
 data/*.db-*

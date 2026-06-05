@@ -1,0 +1,406 @@
+:root {
+  /* Squid Game palette — teal-green dark base, with neutral borders + pink/teal/yellow accents for variance */
+  --bg-0: #08130f;
+  --bg-1: #0d2019;
+  --bg-2: #153529;
+  --ink: #f1f7f4;
+  --ink-dim: #a6aeb2;
+  --pink: #ff2e88;
+  --pink-deep: #c20d5c;
+  --teal: #19d3bd;
+  --green: #4cd9a0;
+  --accent: #2bb39a;
+  --yellow: #ffce3a;
+  --red: #ff5a4d;
+  --orange: #ff9800;
+  --panel: rgba(13, 31, 25, 0.83);
+  --panel-2: rgba(20, 49, 39, 0.9);
+  --line: rgba(236, 240, 245, 0.14);
+  --line-bright: rgba(255, 46, 136, 0.6);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  --font-title: "Bungee", "Baloo 2", system-ui, sans-serif; /* the ELIMINATED wordmark — do not change */
+  --font-heading: "DM Serif Display", Georgia, "Times New Roman", serif; /* game names + headers */
+  --font-heading-weight: 400;
+  --font-display: "Baloo 2", system-ui, sans-serif; /* UI chrome: buttons, inputs, labels */
+  --font-body: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background:
+    radial-gradient(1100px 760px at 8% -8%, rgba(255, 46, 136, 0.2), transparent 60%),
+    radial-gradient(880px 620px at 102% 2%, rgba(25, 211, 189, 0.16), transparent 55%),
+    radial-gradient(680px 560px at 86% 82%, rgba(255, 206, 58, 0.16), transparent 60%),
+    radial-gradient(900px 820px at 36% 120%, rgba(255, 46, 136, 0.14), transparent 62%),
+    linear-gradient(160deg, var(--bg-1), var(--bg-0));
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+.display {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  letter-spacing: 0.3px;
+  margin: 0;
+}
+/* game names + any title text that isn't a semantic heading */
+.title-font {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+}
+
+a {
+  color: var(--teal);
+  text-decoration: none;
+}
+
+button {
+  font-family: var(--font-display);
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--pink);
+  color: #fff;
+}
+
+/* ---------- layout helpers ---------- */
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.container {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+.row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.spacer {
+  flex: 1;
+}
+.center {
+  align-items: center;
+  justify-content: center;
+}
+.wrap {
+  flex-wrap: wrap;
+}
+
+/* ---------- panels & cards ---------- */
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+.card {
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  padding: 18px;
+}
+.glow-pink {
+  border-color: var(--line-bright);
+  box-shadow: 0 0 0 2px rgba(255, 79, 154, 0.15), var(--shadow);
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  --c: var(--pink);
+  border: none;
+  border-radius: 16px;
+  padding: 13px 22px;
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 88%, white 12%), var(--c));
+  box-shadow: 0 6px 0 color-mix(in srgb, var(--c) 60%, black 40%), 0 10px 24px rgba(0, 0, 0, 0.35);
+  transition: transform 0.07s ease, box-shadow 0.07s ease, filter 0.1s;
+  position: relative;
+  top: 0;
+}
+.btn:hover {
+  filter: brightness(1.07) saturate(1.1);
+}
+.btn:active {
+  top: 5px;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--c) 60%, black 40%), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+}
+.btn.pink {
+  --c: var(--pink);
+}
+.btn.teal {
+  --c: var(--teal);
+  color: #0a1412;
+}
+.btn.yellow {
+  --c: var(--yellow);
+  color: #3a2a00;
+}
+.btn.ghost {
+  background: transparent;
+  border: 2px solid var(--line);
+  box-shadow: none;
+  color: var(--ink);
+}
+.btn.ghost:hover {
+  /* brightness filter is invisible on a transparent button, so give ghost
+     buttons their own hover: subtle fill + brightened pink border. */
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--line-bright);
+}
+.btn.ghost:active {
+  top: 0;
+  background: rgba(255, 255, 255, 0.04);
+}
+.btn.big {
+  padding: 18px 34px;
+  font-size: 1.3rem;
+  border-radius: 20px;
+}
+.btn.sm {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  border-radius: 12px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.82rem;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.1s;
+}
+.pill:hover {
+  border-color: var(--line-bright);
+  transform: translateY(-1px);
+}
+/* Accent pills carry their color in the border/icon — text stays white so the
+   text never matches the button color. */
+.pill.pink {
+  background: rgba(255, 46, 136, 0.16);
+  border-color: var(--line-bright);
+  color: var(--ink);
+}
+.pill.gold {
+  background: rgba(255, 206, 58, 0.13);
+  border-color: rgba(255, 206, 58, 0.5);
+  color: var(--ink);
+}
+.pill.gold:hover {
+  border-color: var(--yellow);
+}
+
+.input {
+  background: rgba(0, 0, 0, 0.28);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 16px;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus {
+  border-color: var(--pink);
+}
+
+.tag {
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  letter-spacing: 0.2px;
+  color: var(--ink-dim);
+  font-weight: var(--font-heading-weight);
+}
+
+.marbles {
+  color: var(--yellow);
+  font-weight: 800;
+}
+
+/* ---------- animations ---------- */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-16px) rotate(2deg);
+  }
+}
+@keyframes wobble {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+@keyframes rise {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.pop {
+  animation: pop 0.32s cubic-bezier(0.18, 1.4, 0.4, 1) both;
+}
+.rise {
+  animation: rise 0.4s ease both;
+}
+.floaty {
+  animation: float 5s ease-in-out infinite;
+}
+
+/* ---------- toasts ---------- */
+.toast-wrap {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+}
+.toast {
+  padding: 12px 20px;
+  border-radius: 14px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  animation: pop 0.25s ease both;
+}
+.toast.good {
+  border-color: var(--green);
+}
+.toast.bad {
+  border-color: var(--red);
+}
+
+/* ---------- scrollbars ---------- */
+.scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+.scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 8px;
+}
+
+.dim {
+  color: var(--ink-dim);
+}
+.tiny {
+  font-size: 0.8rem;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.shadowtext {
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+.nowrap {
+  white-space: nowrap;
+}
+
+.grid-games {
+  /* Balanced rows: --cols is set to floor(gameCount / 2) so an even count splits
+     into two equal rows, and an odd count leaves a single card on a third row. */
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 880px) {
+  .grid-games {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .grid-games {
+    grid-template-columns: 1fr;
+  }
+}
