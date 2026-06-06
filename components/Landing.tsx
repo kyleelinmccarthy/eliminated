@@ -9,6 +9,7 @@ import { CHARACTERS } from "@/lib/shared/characters";
 import { GAMES, ALL_GAME_IDS } from "@/lib/shared/games";
 import { CharacterPicker } from "./CharacterPicker";
 import { BlobAvatar } from "./BlobAvatar";
+import { GamePreview } from "./GamePreview";
 import { MuteButton } from "./MuteButton";
 
 // Client-only: better-auth's authClient.useSession() isn't SSR-safe (it crashes
@@ -109,11 +110,14 @@ export function Landing() {
           <strong style={{ fontFamily: "var(--font-title)", fontSize: "1.1rem", letterSpacing: "0.5px" }}>ELIMINATED</strong>
         </div>
         <div className="spacer" />
+        <Link className="pill gold" href="/leaderboard">
+          🏆 Leaderboard
+        </Link>
         <Link className="pill" href="/how-to-play">
           ❔ How to Play
         </Link>
-        <Link className="pill gold" href="/leaderboard">
-          🏆 Leaderboard
+        <Link className="pill" href="/changelog">
+          📓 Patch Notes
         </Link>
         <AccountButton />
         <MuteButton />
@@ -144,7 +148,7 @@ export function Landing() {
           <p className="subtitle">
             Wholesome childhood games. <span style={{ color: "var(--red)" }}>Catastrophic</span> stakes. Adorable little blobs
             who, frankly, signed something they didn't read. Outlast the Game Master's mystery gauntlet and walk off with the{" "}
-            <span style={{ color: "var(--yellow)" }}>{CURRENCY}</span>. Everyone else leaves in a tasteful pink-ribboned box.
+            <span style={{ color: "var(--yellow)" }}>{CURRENCY}</span>. Everyone else is processed, boxed, and ribboned at no extra charge.
           </p>
 
           <div className="panel setup pop">
@@ -219,23 +223,19 @@ export function Landing() {
       </div>
 
       <div className="container games-preview">
-        <h3 style={{ marginBottom: 12 }}>The Games (your itinerary) {CURRENCY_ICON}</h3>
-        <div className="grid-games" style={{ ["--cols" as string]: Math.max(1, Math.floor(ALL_GAME_IDS.length / 2)) }}>
+        <h3 style={{ marginBottom: 12 }}>The Games {CURRENCY_ICON}</h3>
+        <div className="htp-games">
           {ALL_GAME_IDS.map((id) => {
             const g = GAMES[id];
             return (
-              <div key={id} className="card game-card rise">
-                {id === "rpsminusone" ? (
-                  <div className="rps-icon" aria-label={g.icon}>
-                    <span>✊</span>
-                    <span>✋</span>
-                    <span>✌️</span>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: "2.2rem" }}>{g.icon}</div>
-                )}
-                <strong className="title-font game-name">{g.name}</strong>
-                <div className="tiny dim">{g.tagline}</div>
+              <div key={id} className="card htp-game rise">
+                <div className="row" style={{ gap: 10 }}>
+                  <span style={{ fontSize: "2rem" }}>{g.icon}</span>
+                  <strong className="game-name">{g.name}</strong>
+                </div>
+                <GamePreview gameId={id} />
+                <p className="tiny" style={{ margin: "6px 0" }}>{g.rules}</p>
+                <p className="tiny dim" style={{ margin: 0 }}>🎮 {g.controlText}</p>
               </div>
             );
           })}
@@ -253,16 +253,24 @@ export function Landing() {
             <span aria-hidden>·</span>
             <Link href="/terms">Terms</Link>
           </nav>
+          <p className="footer-copy">
+            © {new Date().getFullYear()} Eliminated. All rights reserved. No
+            contestants were harmed — only eliminated.
+          </p>
         </div>
       </div>
 
       <style jsx>{`
+        /* Set the nav off from the page with its own divider line so it reads as
+           dedicated chrome rather than floating over the hero. */
         .topbar {
           display: flex;
           align-items: center;
           gap: 8px;
           padding-top: 18px;
-          padding-bottom: 8px;
+          padding-bottom: 14px;
+          margin-bottom: 6px;
+          border-bottom: 1px solid rgba(236, 240, 245, 0.2);
           position: relative;
           z-index: 1;
         }
@@ -331,7 +339,7 @@ export function Landing() {
           margin: 12px auto 20px;
           color: var(--ink-dim);
           font-size: 1.05rem;
-          font-weight: 600;
+          font-weight: 400;
         }
         .setup {
           padding: 20px;
@@ -361,30 +369,6 @@ export function Landing() {
           position: relative;
           z-index: 1;
         }
-        .game-card {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          align-items: flex-start;
-        }
-        .game-card .game-name {
-          font-size: 0.98rem;
-          line-height: 1.16;
-          letter-spacing: 0;
-          text-wrap: balance;
-        }
-        /* Three RPS hands, turned sideways and clustered into one board-like icon.
-           Same font-size as the other cards' icons so the title baseline aligns. */
-        .rps-icon {
-          font-size: 2.2rem;
-          line-height: normal;
-          white-space: nowrap;
-        }
-        .rps-icon span {
-          display: inline-block;
-          transform: rotate(-90deg);
-          margin: 0 -7px;
-        }
         .footer-note {
           margin-top: 26px;
           text-align: center;
@@ -404,6 +388,11 @@ export function Landing() {
         }
         .footer-links :global(a:hover) {
           color: var(--pink, #ff4f9a);
+        }
+        .footer-copy {
+          margin-top: 12px;
+          margin-bottom: 0;
+          opacity: 0.7;
         }
         @media (max-width: 760px) {
           .setup-grid {

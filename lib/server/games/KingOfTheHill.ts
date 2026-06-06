@@ -5,7 +5,7 @@
 // islands get scarcer and smaller, then it collapses to one shrinking last-stand
 // island. Last blob not-on-fire is champion. Decisive by design.
 
-import { ArenaGame, type GameContext, type ArenaActor, type MinigameResult, buildRanking } from "./Minigame";
+import { ArenaGame, crownOne, type GameContext, type ArenaActor, type MinigameResult } from "./Minigame";
 import type { GameId, Snapshot } from "../../shared/types";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { dist } from "../../shared/util";
@@ -410,13 +410,14 @@ export class KingOfTheHill extends ArenaGame {
   }
 
   result(): MinigameResult {
-    const survivors = this.aliveActors().sort((a, b) => (b.data!.kingT || 0) - (a.data!.kingT || 0));
-    return {
-      survivorIds: survivors.map((a) => a.id),
-      ranking: buildRanking(
-        survivors.map((a) => a.id),
-        this.elimOrder,
-      ),
-    };
+    // ranked best-first by time spent crowned on an island; the finale crowns the
+    // most decisive island-holder if the buzzer caught more than one still hopping
+    const ranked = this.aliveActors().sort((a, b) => (b.data!.kingT || 0) - (a.data!.kingT || 0));
+    return crownOne(
+      ranked.map((a) => a.id),
+      this.elimOrder,
+      this.ctx.forceSingleSurvivor,
+      "Ran out of ground",
+    );
   }
 }

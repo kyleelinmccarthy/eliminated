@@ -171,17 +171,53 @@ export class RpsMinusOne implements Minigame {
       this.timer = RESOLVE_T;
       this.resolveAll();
     } else {
-      // resolve -> either replay tied duels or finish
+      // resolve -> replay tied duels, advance the bracket, or finish
       const replays = this.duels.filter((d) => d.status === "pick");
       if (replays.length > 0) {
         this.phase = "pick";
         this.timer = PICK_T;
         this.round++;
         this.ctx.toast("Tie! Nobody dies yet. Throw again.", "info");
+      } else if (this.ctx.forceSingleSurvivor && this.standing().length > 1) {
+        // As the decisive finale, RPS is a full single-elimination bracket:
+        // re-pair the winners and keep going until exactly one blob is left.
+        this.nextBracketRound();
       } else {
         this.done = true;
       }
     }
+  }
+
+  // everyone still in it: this round's duel winners plus anyone who drew a bye
+  private standing(): string[] {
+    const ids: string[] = [];
+    for (const d of this.duels) if (d.winner) ids.push(d.winner);
+    for (const b of this.byes) ids.push(b);
+    return ids;
+  }
+
+  private nextBracketRound(): void {
+    const survivors = shuffle(this.ctx.rng, this.standing());
+    this.duels = [];
+    this.byes = [];
+    for (let i = 0; i + 1 < survivors.length; i += 2) {
+      this.duels.push({
+        a: survivors[i],
+        b: survivors[i + 1],
+        aThrows: [],
+        bThrows: [],
+        aKeep: null,
+        bKeep: null,
+        status: "pick",
+        winner: null,
+        ties: 0,
+      });
+    }
+    if (survivors.length % 2 === 1) this.byes.push(survivors[survivors.length - 1]);
+    this.phase = "pick";
+    this.timer = PICK_T;
+    this.round++;
+    this.ctx.toast(`Winners advance — ${survivors.length} left. Throw again.`, "info");
   }
 
   private resolveAll() {

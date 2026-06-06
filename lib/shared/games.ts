@@ -21,6 +21,10 @@ export interface GameMeta {
   cull?: "low" | "mid" | "high";
   // Finale games are never picked at random — they're forced as the LAST round.
   finale?: boolean;
+  // Finale-CAPABLE games can decisively crown a single survivor (so they're
+  // eligible for the last round), but unlike `finale` they ALSO appear in the
+  // normal rotation. On the final round they're told to leave exactly one blob.
+  finaleCapable?: boolean;
 }
 
 export const GAMES: Record<GameId, GameMeta> = {
@@ -120,6 +124,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     minPlayers: 2,
     arena: "duel",
     cull: "high",
+    finaleCapable: true, // as a finale it runs a full single-elim bracket to one
     flavors: [
       "Mind games. The loser forfeits a hand and the rest of them.",
       "Rock, paper, scissors, minus one, plus consequences.",
@@ -137,6 +142,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     minPlayers: 1,
     arena: "rope",
     cull: "mid",
+    finaleCapable: true, // last jumper on the beat
     flavors: [
       "Skip, skip, skip… faceplant.",
       "The rope never gets tired. It also never gets a raise. Relatable.",
@@ -154,6 +160,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     minPlayers: 2,
     arena: "field",
     cull: "high",
+    finaleCapable: true, // free-for-all last blob standing
     flavors: [
       "Steel yourselves. The boomerangs, like your problems, come back.",
       "Grab a powerup. It might save you. It might curse you. We're not telling.",
@@ -258,6 +265,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     minPlayers: 1,
     arena: "parlor",
     cull: "mid",
+    finaleCapable: true, // last one to obey perfectly
     flavors: [
       "Simon says obey. Simon does not say there's a refund.",
       "Listen carefully. Your reflexes are now a survival skill.",
@@ -275,6 +283,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     minPlayers: 2,
     arena: "field",
     cull: "mid",
+    finaleCapable: true, // last balloon still airborne
     flavors: [
       "One balloon each. 'Keep it up as a group,' they said. Then they handed out pins.",
       "It's a children's party game. The children are gone. The pins remain.",
@@ -289,7 +298,8 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "THE FINALE. The floor is lava and the islands sink into it one by one. Hop between them to stay off the floor, grab powerups, and shove rivals into the magma. The islands run out — last blob not-on-fire is CHAMPION.",
     controls: ["move"],
     controlText: "Move with WASD / Arrows or drag. Hop between the sinking islands — and bump rivals into the lava!",
-    minPlayers: 3,
+    // The series culls down to a 1v1 for the finale, so it must run with 2.
+    minPlayers: 2,
     arena: "field",
     cull: "high",
     finale: true,

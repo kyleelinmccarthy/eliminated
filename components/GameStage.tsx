@@ -282,9 +282,11 @@ function PlayingView() {
   const gameMeta = hud.game ? GAMES[hud.game] : null;
   const map = getMap(room?.currentMapId ?? null);
   const roundLabel = room
-    ? room.totalRoundsKnown
-      ? `Game ${room.roundIndex + 1} / ${room.totalRounds}`
-      : `Game ${room.roundIndex + 1} / ?`
+    ? room.totalRounds > 0 && room.roundIndex + 1 > room.totalRounds
+      ? "Sudden Death" // overtime: a finale that left more than one blob standing
+      : room.totalRoundsKnown
+        ? `Game ${room.roundIndex + 1} / ${room.totalRounds}`
+        : `Game ${room.roundIndex + 1} / ?`
     : "";
 
   return (

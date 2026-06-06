@@ -1,5 +1,5 @@
 import type { Minigame, GameContext, MinigameResult } from "./Minigame";
-import { buildRanking } from "./Minigame";
+import { crownOne } from "./Minigame";
 import type { GameId, Snapshot, Effect } from "../../shared/types";
 import type { GameInput } from "../../shared/protocol";
 import { SIMON_COMMANDS, SIMON_FREEZE, SIMON_KEYS } from "../../shared/simon";
@@ -79,8 +79,10 @@ export class SimonSays implements Minigame {
       });
     }
     const n = this.ctx.players.length;
-    this.target = Math.max(1, Math.ceil(n * (1 - 0.55 * this.ctx.intensity)));
-    this.maxBeats = Math.round(10 + this.ctx.intensity * 18);
+    // As the decisive finale, whittle all the way to one, and give it enough
+    // beats to actually get there.
+    this.target = this.ctx.forceSingleSurvivor ? 1 : Math.max(1, Math.ceil(n * (1 - 0.55 * this.ctx.intensity)));
+    this.maxBeats = this.ctx.forceSingleSurvivor ? Math.max(24, n * 4) : Math.round(10 + this.ctx.intensity * 18);
     this.freezeChance = 0.22 + 0.12 * this.ctx.intensity;
     this.ctx.toast("Simon says: obey instantly. Or else.", "info");
     this.beginBeat();
@@ -277,7 +279,7 @@ export class SimonSays implements Minigame {
 
   result(): MinigameResult {
     const survivors = [...this.contestants.values()].filter((c) => c.alive).map((c) => c.id);
-    return { survivorIds: survivors, ranking: buildRanking(survivors, this.elimOrder) };
+    return crownOne(survivors, this.elimOrder, this.ctx.forceSingleSurvivor, "Still standing at the buzzer");
   }
 }
 

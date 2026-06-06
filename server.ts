@@ -8,7 +8,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { roomManager } from "./lib/server/RoomManager";
 import { initDb } from "./lib/server/db";
 import { WS_PATH } from "./lib/shared/protocol";
-import { auth } from "./lib/server/auth";
+import { auth, ensureAuthSchema } from "./lib/server/auth";
 import { fromNodeHeaders } from "better-auth/node";
 
 const dev = process.env.NODE_ENV !== "production";
@@ -24,6 +24,12 @@ interface Beating extends WebSocket {
 
 async function main() {
   await initDb();
+  // Self-heal Better Auth's tables on boot so a fresh deploy doesn't 500 on the
+  // first sign-in. Non-fatal: accounts are optional, so the game still runs even
+  // if this can't reach the DB.
+  await ensureAuthSchema().catch((err) =>
+    console.warn("[auth] schema migration skipped:", (err as Error).message),
+  );
   await app.prepare();
   const upgradeHandler = app.getUpgradeHandler();
 
@@ -94,7 +100,7 @@ async function main() {
   roomManager.start();
 
   server.listen(port, hostname, () => {
-    console.log(`\n  🎪  Eliminated is live → http://localhost:${port}\n`);
+    console.log(`\n  💀  Eliminated is live → http://localhost:${port}\n`);
   });
 
   const shutdown = () => {

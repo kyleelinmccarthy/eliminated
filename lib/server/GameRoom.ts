@@ -36,6 +36,19 @@ const GO_MS = 3200;
 const RESULT_MS = 6000;
 const SERIES_RESULT_MS = 30000;
 const BOT_FILL_TARGET = 6;
+// Hardcore is "last blob standing": the series ends only when ONE survivor
+// remains. The scheduled final round is a decisive finale that crowns a single
+// champion, so this rarely matters — it's a safety net for the freak case where
+// a finale still leaves two alive (we'd run extra sudden-death finales).
+const FINALE_OVERTIME_CAP = 5;
+// Math-based pacing (hardcore): we scale each round's cull strength so the field
+// funnels down to roughly this many blobs entering the decisive finale — tense,
+// but not an anticlimactic 1v1 reached three rounds early.
+const FINALE_FIELD_TARGET = 3;
+// Rough model of how a round's cull strength maps to its survival ratio:
+// survivors ≈ players · (1 − CULL_COEFF · intensity). The target-based games
+// (brawls / skill games) sit around 0.5; we invert it to solve for intensity.
+const CULL_COEFF = 0.5;
 
 export class GameRoom {
   code: string;
@@ -295,15 +308,32 @@ export class GameRoom {
     return [...this.players.values()]; // casual: everyone plays every round
   }
 
-  // The round being set up is the last scheduled one (forces the finale game).
+  // The round being set up is the last scheduled one — or beyond it, if we've
+  // gone into sudden-death overtime because a finale left more than one blob
+  // alive (hardcore only; casual always stops exactly at totalRounds). Forces a
+  // decisive finale game.
   private isFinalRound(): boolean {
-    return this.totalRounds > 0 && this.roundIndex === this.totalRounds - 1;
+    return this.totalRounds > 0 && this.roundIndex >= this.totalRounds - 1;
   }
 
-  // 0..1 cull strength: gentle opener, harsher as the series nears its end.
-  private computeIntensity(): number {
-    if (this.totalRounds <= 1) return 0.7;
-    return clamp(0.18 + 0.7 * (this.roundIndex / (this.totalRounds - 1)), 0.12, 0.85);
+  // 0..1 cull strength for the round being set up.
+  //  - The finale runs brisk (it collapses to one regardless).
+  //  - Casual keeps a simple gentle→harsh ramp (no persistent elimination to
+  //    funnel, since everyone replays every round).
+  //  - Hardcore solves for the cull rate that lands the field on
+  //    FINALE_FIELD_TARGET by the time the finale starts, recomputed each round
+  //    from the LIVE alive count so it self-corrects when a round over/under-culls.
+  private computeIntensity(aliveNow: number): number {
+    if (this.isFinalRound()) return 0.9;
+    if (this.config.mode !== "hardcore") {
+      if (this.totalRounds <= 1) return 0.7;
+      return clamp(0.18 + 0.7 * (this.roundIndex / (this.totalRounds - 1)), 0.12, 0.85);
+    }
+    if (aliveNow <= FINALE_FIELD_TARGET) return 0.22; // already thin — keep it light
+    // culling rounds left before the finale (this round included)
+    const roundsToCull = Math.max(1, this.totalRounds - 1 - this.roundIndex);
+    const perRoundRatio = Math.pow(FINALE_FIELD_TARGET / aliveNow, 1 / roundsToCull);
+    return clamp((1 - perRoundRatio) / CULL_COEFF, 0.12, 0.9);
   }
 
   private chooseGame(aliveCount: number): GameId {
@@ -311,11 +341,18 @@ export class GameRoom {
     const isAllowed = (g: GameId) => allowList.includes(g);
     const playable = (g: GameId) => minPlayersFor(g) <= aliveCount;
 
-    // Finale games (king of the hill) are never random — they're saved for the
-    // final scheduled round, then only if allowed and big enough to run.
+    // The final round is always a decisive finale — a game that can crown a
+    // single survivor (king of the hill, or any finale-CAPABLE game like the
+    // brawls / skill games, told to leave exactly one). We prefer the host's
+    // allowed finale games; if they disabled them all, we fall back to ANY
+    // finale-capable game so hardcore still guarantees a lone champion.
     if (this.isFinalRound()) {
-      const finales = ALL_GAME_IDS.filter((g) => GAMES[g].finale && isAllowed(g) && playable(g));
-      if (finales.length) return pick(this.rng, finales);
+      const canFinale = (g: GameId) => (GAMES[g].finale || GAMES[g].finaleCapable) && playable(g);
+      let finales = allowList.filter(canFinale);
+      if (!finales.length) finales = ALL_GAME_IDS.filter(canFinale);
+      const noRepeatFinale = finales.filter((g) => g !== this.lastGame);
+      const pool = noRepeatFinale.length ? noRepeatFinale : finales;
+      if (pool.length) return pick(this.rng, pool);
     }
 
     // Normal pool excludes finale-only games.
@@ -397,8 +434,10 @@ export class GameRoom {
       roundIndex: this.roundIndex,
       totalRounds: this.totalRounds,
       isFinale: this.isFinalRound(),
-      intensity: this.computeIntensity(),
+      intensity: this.computeIntensity(participants.length),
       night: this.currentNight,
+      // The hardcore finale must crown exactly one champion (Squid Game rule).
+      forceSingleSurvivor: this.config.mode === "hardcore" && this.isFinalRound(),
     };
     this.game = createMinigame(this.currentGame!, ctx);
     this.game.start();
@@ -463,8 +502,13 @@ export class GameRoom {
     const aliveCount = this.alivePlayers().length;
     let seriesOver = false;
     if (this.config.mode === "hardcore") {
+      // Squid Game rule: nobody splits the prize. The series ends only when a
+      // single survivor remains. The scheduled final round is always a decisive
+      // finale (see chooseGame) that crowns exactly one champion, so this
+      // normally lands right on schedule; the overtime cap is a safety net for
+      // the freak case where a finale still leaves two blobs standing.
       if (aliveCount <= 1) seriesOver = true;
-      else if (this.roundIndex >= this.totalRounds) seriesOver = true;
+      else if (this.roundIndex >= this.totalRounds + FINALE_OVERTIME_CAP) seriesOver = true;
     } else {
       if (this.roundIndex >= this.totalRounds) seriesOver = true;
     }

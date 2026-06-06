@@ -78,7 +78,7 @@ export default function Privacy() {
         <section className="legal-sec">
           <h3>The public leaderboard</h3>
           <p className="dim">
-            The Hall of Blobs publicly shows your <strong>display name, title, and stats</strong> to anyone who visits.
+            The Wall of Survivors publicly shows your <strong>display name, title, and stats</strong> to anyone who visits.
             That's the whole point of bragging rights. Because it's public, <strong>please don't use your legal name</strong>{" "}
             or anything you'd mind a stranger seeing. Pick something fun. Pick something you can defend in court.
           </p>

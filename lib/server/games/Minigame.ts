@@ -37,6 +37,10 @@ export interface GameContext {
   isFinale: boolean; // climactic last game of the series
   intensity: number; // 0..1 cull strength (gentle opener -> harsh late)
   night: boolean; // dark round (flashlight + vision powerups)
+  // Squid Game finale: this round MUST leave exactly one survivor (the champion).
+  // Set on the decisive last game in hardcore so it crowns a single winner even
+  // if it would otherwise time out with several blobs still alive.
+  forceSingleSurvivor: boolean;
 }
 
 export interface RankEntry {
@@ -281,6 +285,30 @@ export abstract class ArenaGame implements Minigame {
   isDone(): boolean {
     return this.done;
   }
+}
+
+// Squid Game finale helper: build a result that crowns exactly ONE survivor when
+// `force` is set. `survivorIds` is best-first; `eliminatedInOrder` is earliest-out
+// first. The runners-up still standing at the buzzer are demoted just below the
+// champion (above the earlier-eliminated). When `force` is false this is just
+// buildRanking — so finale-capable games can call it unconditionally.
+export function crownOne(
+  survivorIds: string[],
+  eliminatedInOrder: { id: string; note?: string }[],
+  force: boolean,
+  demoteNote = "Just missed the cut",
+): MinigameResult {
+  if (!force || survivorIds.length <= 1) {
+    return { survivorIds, ranking: buildRanking(survivorIds, eliminatedInOrder) };
+  }
+  const champ = survivorIds[0];
+  // best-first runners-up, reversed so buildRanking's own reverse seats them
+  // immediately under the champion in best-first order.
+  const demoted = survivorIds.slice(1).reverse().map((id) => ({ id, note: demoteNote }));
+  return {
+    survivorIds: [champ],
+    ranking: buildRanking([champ], [...eliminatedInOrder, ...demoted]),
+  };
 }
 
 // helper for building a default ranking: survivors first (placement by order),

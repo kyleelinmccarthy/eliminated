@@ -34,7 +34,10 @@ function runGame(game) {
         phase = r.phase;
         if (r.phase === "lobby" && !started) {
           started = true;
-          send({ t: "updateConfig", config: { rounds: 1, mode: "hardcore", botFill: true, allowedGames: [game] } });
+          // Casual so the round runs the TARGET game in isolation. In hardcore a
+          // 1-round series' only round is the forced King-of-the-Hill finale, so
+          // every room would test koth instead of its assigned game.
+          send({ t: "updateConfig", config: { rounds: 1, mode: "casual", botFill: true, allowedGames: [game] } });
           setTimeout(() => send({ t: "startSeries" }), 150);
         }
         if (r.phase === "seriesResult") {

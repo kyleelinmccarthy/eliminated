@@ -27,6 +27,7 @@ export function AccountButton({
   const [view, setView] = useState<View>(defaultView);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [name, setName] = useState(gameName);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -72,6 +73,21 @@ export function AccountButton({
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
     reset();
+    // Sign-up only: enforce the same 12-char floor the server uses (lib/server/auth.ts
+    // minPasswordLength), and make you type it twice so a typo doesn't lock you out of
+    // your own Marbles. The server also rejects breached passwords (haveIBeenPwned).
+    if (view === "signup") {
+      if (password.length < 12) {
+        audio.sfx("bad");
+        setErr("Password needs at least 12 characters. House rules.");
+        return;
+      }
+      if (password !== confirm) {
+        audio.sfx("bad");
+        setErr("Those passwords don't match. Even you can't agree with yourself.");
+        return;
+      }
+    }
     setBusy(true);
     try {
       const { error } =
@@ -271,9 +287,29 @@ export function AccountButton({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={8}
+                  // 12 for new accounts; sign-in keeps the old floor so returning
+                  // players with shorter passwords aren't locked out at the input.
+                  minLength={view === "signup" ? 12 : 8}
                   autoComplete={view === "signup" ? "new-password" : "current-password"}
                 />
+                {view === "signup" && (
+                  <>
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder="Confirm password"
+                      value={confirm}
+                      onChange={(e) => setConfirm(e.target.value)}
+                      required
+                      minLength={12}
+                      autoComplete="new-password"
+                    />
+                    <p className="hint tiny dim">
+                      At least 12 characters, and not one that's been leaked in a breach.
+                      Make it harder to crack than your strategy.
+                    </p>
+                  </>
+                )}
                 <button className="btn pink big" disabled={busy}>
                   {busy ? "…" : view === "signup" ? "Create account" : "Sign in"}
                 </button>
@@ -312,11 +348,16 @@ export function AccountButton({
 
       <style jsx>{`
         /* Accent lives in the tint/border; text stays white so it never sits
-           green-on-green (matches .pink / .gold in globals.css). */
-        .save-pill,
-        .login-pill {
+           color-on-color (matches .pink / .gold in globals.css). Save Progress
+           keeps the teal "go" accent; the home Log In is pink to match the brand. */
+        .save-pill {
           background: rgba(25, 211, 189, 0.14);
           border-color: var(--teal);
+          color: var(--ink);
+        }
+        .login-pill {
+          background: rgba(255, 46, 136, 0.16);
+          border-color: var(--line-bright);
           color: var(--ink);
         }
         .backdrop {
@@ -363,6 +404,11 @@ export function AccountButton({
           display: flex;
           flex-direction: column;
           gap: 10px;
+        }
+        .hint {
+          margin: -4px 2px 0;
+          text-align: left;
+          line-height: 1.3;
         }
         .gbtn {
           display: flex;

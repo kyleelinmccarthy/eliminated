@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "migrate:auth": "tsx scripts/migrate-auth.ts",
     "smoke": "node scripts/smoke.mjs",
-    "smoke:all": "node scripts/smoke-all.mjs"
+    "smoke:all": "node scripts/smoke-all.mjs",
+    "smoke:survivor": "node scripts/verify-single-survivor.mjs"
   },
   "engines": {
     "node": "20.x"

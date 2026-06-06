@@ -29,7 +29,7 @@ export default async function LeaderboardPage() {
         </div>
 
         <h1 className="shadowtext" style={{ fontSize: "2.6rem" }}>
-          🏆 Hall of Blobs
+          🏆 Wall of Survivors
         </h1>
         <p className="dim" style={{ marginBottom: 18 }}>
           The richest, most ruthless survivors — ranked by total {CURRENCY} {CURRENCY_ICON} hoarded off the backs of the

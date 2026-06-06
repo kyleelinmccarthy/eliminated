@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Eliminated — childhood games, adult consequences",
+  title: "Eliminated — survive the games, or be eliminated",
   description:
     "A cheerful party game where adorable blobs play children's games for cash and die doing it. Red Light Green Light, the Glass Bridge, Boomerang Brawl and more. Last blob standing keeps the Marbles. Everyone else gets boxed.",
 };

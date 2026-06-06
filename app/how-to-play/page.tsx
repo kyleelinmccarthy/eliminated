@@ -45,7 +45,7 @@ export default function HowToPlay() {
         </p>
 
         <div className="panel htp-section">
-          <h3>🎪 Getting Started (it's the last easy part)</h3>
+          <h3>🎟️ Getting Started (it's the last easy part)</h3>
           <ol>
             <li>Pick a name and a blob on the home screen. Get attached. It's funnier that way.</li>
             <li>
@@ -158,7 +158,7 @@ export default function HowToPlay() {
             Survive rounds to earn {CURRENCY} {CURRENCY_ICON} — the only thing here that outlives the players. Win the
             series for a fat champion bonus and a shiny <strong>title</strong> to lord over the deceased. Spend your
             hoard on fancier blobs (it does not improve your odds, only the optics of your demise). Totals are saved and
-            ranked forever on the <Link href="/leaderboard">Hall of Blobs</Link>.
+            ranked forever on the <Link href="/leaderboard">Wall of Survivors</Link>.
           </p>
         </div>
 
@@ -180,48 +180,6 @@ export default function HowToPlay() {
         .htp-section { padding: 20px; margin-top: 16px; }
         .htp-section h3 { margin-bottom: 10px; }
         .htp-section ol { margin: 0; padding-left: 20px; line-height: 1.7; }
-        .htp-games { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
-        .htp-game { display: flex; flex-direction: column; }
-        .htp-preview { position: relative; margin: 8px 0 2px; }
-        .htp-preview canvas {
-          width: 100%;
-          aspect-ratio: 16 / 9;
-          display: block;
-          border-radius: 12px;
-          border: 2px solid var(--line);
-          background: radial-gradient(circle at 50% 38%, #1a1030, #0b0713);
-        }
-        .htp-preview-badge {
-          position: absolute;
-          top: 6px;
-          right: 6px;
-          font-family: var(--font-body);
-          font-size: 0.6rem;
-          font-weight: 700;
-          letter-spacing: 0.04em;
-          color: #fff;
-          background: rgba(0, 0, 0, 0.55);
-          border: 1px solid var(--line-bright);
-          border-radius: 999px;
-          padding: 2px 8px;
-          pointer-events: none;
-          backdrop-filter: blur(4px);
-        }
-        .htp-preview--soon {
-          aspect-ratio: 16 / 9;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          padding: 0 16px;
-          border-radius: 12px;
-          border: 2px dashed var(--line);
-          background: radial-gradient(circle at 50% 38%, #1a1030, #0b0713);
-          color: var(--ink-dim);
-          font-family: var(--font-body);
-          font-size: 0.74rem;
-          font-weight: 600;
-        }
       `}</style>
     </div>
   );

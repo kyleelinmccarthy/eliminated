@@ -120,6 +120,7 @@ export function GamePreview({ gameId, bots = 10 }: { gameId: GameId; bots?: numb
         isFinale: gameId === "koth",
         intensity: 0.5, // mid harshness keeps the action lively but not instant
         night: false,
+        forceSingleSurvivor: false, // preview loops forever; never crowns a winner
       };
       game = createMinigame(gameId, gctx);
       game.start();

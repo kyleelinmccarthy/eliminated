@@ -9,7 +9,7 @@
 // 🛡️ shield is a one-time save; the last balloon flying can't be popped. Survive
 // to the buzzer.
 
-import { ArenaGame, type GameContext, type ArenaActor, type MinigameResult, buildRanking } from "./Minigame";
+import { ArenaGame, crownOne, type GameContext, type ArenaActor, type MinigameResult } from "./Minigame";
 import type { GameId, Snapshot } from "../../shared/types";
 import type { GameInput } from "../../shared/protocol";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
@@ -418,12 +418,11 @@ export class KeepyUppy extends ArenaGame {
       const by = this.balloons.get(b.id)?.y ?? ARENA_H;
       return ay - by;
     });
-    return {
-      survivorIds: survivors.map((a) => a.id),
-      ranking: buildRanking(
-        survivors.map((a) => a.id),
-        this.elimOrder,
-      ),
-    };
+    return crownOne(
+      survivors.map((a) => a.id),
+      this.elimOrder,
+      this.ctx.forceSingleSurvivor,
+      "Lowest balloon at the buzzer",
+    );
   }
 }

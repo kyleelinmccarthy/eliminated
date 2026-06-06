@@ -1,4 +1,4 @@
-import { ArenaGame, type GameContext, type ArenaActor, type MinigameResult } from "./Minigame";
+import { ArenaGame, crownOne, type GameContext, type ArenaActor, type MinigameResult } from "./Minigame";
 import type { GameId, Snapshot } from "../../shared/types";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { dist, clamp } from "../../shared/util";
@@ -54,8 +54,11 @@ export class Boomerang extends ArenaGame {
   start(): void {
     const ps = this.ctx.players;
     this.startCount = ps.length;
-    // survivors target scales with series intensity (keep more alive early)
-    this.target = Math.max(1, Math.round(ps.length * (1 - 0.5 * this.ctx.intensity)));
+    // survivors target scales with series intensity (keep more alive early); as
+    // the decisive finale, brawl all the way down to one.
+    this.target = this.ctx.forceSingleSurvivor
+      ? 1
+      : Math.max(1, Math.round(ps.length * (1 - 0.5 * this.ctx.intensity)));
     ps.forEach((p, i) => {
       const ang = (i / ps.length) * Math.PI * 2;
       const a = this.addActor(
@@ -443,14 +446,15 @@ export class Boomerang extends ArenaGame {
   }
 
   result(): MinigameResult {
-    const survivors = this.aliveActors();
-    survivors.sort((a, b) => (b.data!.kills || 0) - (a.data!.kills || 0));
-    const ranking: MinigameResult["ranking"] = [];
-    let place = 1;
-    for (const a of survivors) ranking.push({ playerId: a.id, survived: true, placement: place++ });
-    for (const e of [...this.elimOrder].reverse())
-      ranking.push({ playerId: e.id, survived: false, placement: place++, note: e.note });
-    return { survivorIds: survivors.map((a) => a.id), ranking };
+    // best-first by kills, so the finale crowns the deadliest blob if the buzzer
+    // catches more than one still standing
+    const survivors = this.aliveActors().sort((a, b) => (b.data!.kills || 0) - (a.data!.kills || 0));
+    return crownOne(
+      survivors.map((a) => a.id),
+      this.elimOrder,
+      this.ctx.forceSingleSurvivor,
+      "Out-brawled at the buzzer",
+    );
   }
 }
 

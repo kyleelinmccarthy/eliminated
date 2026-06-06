@@ -140,7 +140,7 @@ button {
   border-radius: 16px;
   padding: 13px 22px;
   font-size: 1.02rem;
-  font-weight: 700;
+  font-weight: 500;
   color: #fff;
   background: linear-gradient(180deg, color-mix(in srgb, var(--c) 88%, white 12%), var(--c));
   box-shadow: 0 6px 0 color-mix(in srgb, var(--c) 60%, black 40%), 0 10px 24px rgba(0, 0, 0, 0.35);
@@ -207,7 +207,7 @@ button {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--line);
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 500;
   font-size: 0.82rem;
   transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.1s;
 }
@@ -389,20 +389,64 @@ button {
   white-space: nowrap;
 }
 
-.grid-games {
-  /* Balanced rows: --cols is set to floor(gameCount / 2) so an even count splits
-     into two equal rows, and an odd count leaves a single card on a third row. */
+/* ---------- game cards w/ live previews (shared: home + how-to-play) ---------- */
+.htp-games {
   display: grid;
-  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
 }
-@media (max-width: 880px) {
-  .grid-games {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.htp-game {
+  display: flex;
+  flex-direction: column;
 }
-@media (max-width: 480px) {
-  .grid-games {
-    grid-template-columns: 1fr;
-  }
+.htp-game .game-name {
+  font-family: var(--font-game);
+  font-weight: 400;
+  font-size: 1rem;
+  letter-spacing: 0;
+  line-height: 1.16;
+  text-wrap: balance;
+}
+.htp-preview {
+  position: relative;
+  margin: 8px 0 2px;
+}
+.htp-preview canvas {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: radial-gradient(circle at 50% 38%, #1a1030, #0b0713);
+}
+.htp-preview-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-family: var(--font-body);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--line-bright);
+  border-radius: 999px;
+  padding: 2px 8px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+.htp-preview--soon {
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 2px dashed var(--line);
+  background: radial-gradient(circle at 50% 38%, #1a1030, #0b0713);
+  color: var(--ink-dim);
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  font-weight: 600;
 }

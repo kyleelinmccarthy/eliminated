@@ -1,4 +1,5 @@
 import type { Minigame, GameContext, MinigameResult } from "./Minigame";
+import { crownOne } from "./Minigame";
 import type { GameId, Snapshot, Effect } from "../../shared/types";
 import type { GameInput } from "../../shared/protocol";
 
@@ -56,10 +57,12 @@ export class JumpRope implements Minigame {
         survivedSwings: 0,
       });
     }
-    // gentler early in a series: fewer swings, an extra freebie, keep more alive
+    // gentler early in a series: fewer swings, an extra freebie, keep more alive.
+    // As the decisive finale, skip down to a single jumper (with the swings to
+    // get there).
     const n = this.ctx.players.length;
-    this.target = Math.max(1, Math.ceil(n * (1 - 0.55 * this.ctx.intensity)));
-    this.maxSwings = Math.round(8 + this.ctx.intensity * 22);
+    this.target = this.ctx.forceSingleSurvivor ? 1 : Math.max(1, Math.ceil(n * (1 - 0.55 * this.ctx.intensity)));
+    this.maxSwings = this.ctx.forceSingleSurvivor ? Math.max(28, n * 5) : Math.round(8 + this.ctx.intensity * 22);
     this.graceSwings = this.ctx.intensity < 0.4 ? 2 : 1;
     this.ctx.toast("Jump on the beat. The rope is not negotiating.", "info");
   }
@@ -158,13 +161,12 @@ export class JumpRope implements Minigame {
   }
 
   result(): MinigameResult {
-    const survivors = [...this.jumpers.values()].filter((j) => j.alive).map((j) => j.id);
-    const ranking: MinigameResult["ranking"] = [];
-    let place = 1;
-    for (const id of survivors) ranking.push({ playerId: id, survived: true, placement: place++ });
-    const losers = [...this.jumpers.values()].filter((j) => !j.alive).sort((a, b) => b.survivedSwings - a.survivedSwings);
-    for (const j of losers)
-      ranking.push({ playerId: j.id, survived: false, placement: place++, note: `Tripped on swing ${j.survivedSwings + 1}` });
-    return { survivorIds: survivors, ranking };
+    // best-first by how long they lasted, so a buzzer with several still hopping
+    // crowns the most enduring jumper
+    const survivors = [...this.jumpers.values()]
+      .filter((j) => j.alive)
+      .sort((a, b) => b.survivedSwings - a.survivedSwings)
+      .map((j) => j.id);
+    return crownOne(survivors, this.elimOrder, this.ctx.forceSingleSurvivor, "Still hopping at the buzzer");
   }
 }
