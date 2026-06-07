@@ -24,6 +24,8 @@ import {
 } from "../shared/constants";
 import { makeRng, pick, botName, makeId, MAX_PLAYER_NUMBER, clamp, type Rng } from "../shared/util";
 import { randomCharacterId } from "../shared/characters";
+import { ACCESSORIES, sanitizeEquipped } from "../shared/accessories";
+import { betMultiplier, betRejectionReason, clampStake, settleBet } from "../shared/betting";
 import { createMinigame, minPlayersFor } from "./games/registry";
 import type { Minigame, GameContext } from "./games/Minigame";
 import { recordSeries, type SeriesReward } from "./db";
@@ -36,6 +38,9 @@ const GO_MS = 3200;
 const RESULT_MS = 6000;
 const SERIES_RESULT_MS = 30000;
 const BOT_FILL_TARGET = 6;
+// How many of the most-recently-played games to remember across series (Play
+// Again) and steer the next draw away from, so the room doesn't repeat itself.
+const RECENT_GAMES_WINDOW = 3;
 // Hardcore is "last blob standing": the series ends only when ONE survivor
 // remains. The scheduled final round is a decisive finale that crowns a single
 // champion, so this rarely matters — it's a safety net for the freak case where
@@ -71,6 +76,12 @@ export class GameRoom {
   // so a short gauntlet shows real variety instead of randomly repeating a couple
   // while never touching others.
   private playedGames: GameId[] = [];
+  // The last few games played in this ROOM, persisted ACROSS series (Play Again).
+  // A fresh series resets playedGames/lastGame, so without this the next series
+  // could open on the exact game that just closed the previous one, and short
+  // back-to-back series recycle the same handful. We exclude this tail from the
+  // draw so the room keeps feeling varied session-to-session, not just per-series.
+  private recentGames: GameId[] = [];
   private game: Minigame | null = null;
   private participants: string[] = []; // player ids in current round
 
@@ -196,6 +207,20 @@ export class GameRoom {
           this.markDirty();
         }
         break;
+      case "setAccessories":
+        // Cosmetic-only, changed in the lobby (like your blob). Sanitized so a
+        // client can never wear two hats or smuggle in junk ids.
+        if (this.phase === "lobby") {
+          p.accessories = sanitizeEquipped(msg.accessories);
+          this.markDirty();
+        }
+        break;
+      case "placeBet":
+        this.placeBet(p, msg.targetId, msg.stake);
+        break;
+      case "cancelBet":
+        this.cancelBet(p);
+        break;
       case "setReady":
         p.ready = msg.ready;
         this.markDirty();
@@ -256,9 +281,87 @@ export class GameRoom {
     });
     bot.ready = true;
     bot.number = this.assignNumber();
+    bot.accessories = this.randomBotDrip();
     this.players.set(bot.id, bot);
     this.markDirty();
     return bot;
+  }
+
+  // Give bots a little random drip (≤ one item per slot) so accessories are
+  // visible even in bot-fill games. Deterministic via the room rng.
+  private randomBotDrip(): string[] {
+    const slots = [...new Set(ACCESSORIES.map((a) => a.slot))];
+    const out: string[] = [];
+    for (const slot of slots) {
+      if (this.rng() < 0.35) out.push(pick(this.rng, ACCESSORIES.filter((a) => a.slot === slot)).id);
+    }
+    return out;
+  }
+
+  // ---- Dead Pool betting (hardcore spectators) ----
+  // An eliminated blob wagers some of its series earnings on who'll be the last
+  // one standing. Validated against the same rules the client uses to grey out
+  // the button; the bet is stored and settled once, at endSeries.
+  private placeBet(p: Player, targetId: string, stake: number): void {
+    // Only meaningful mid-series, while a champion is still undecided.
+    if (this.phase === "lobby" || this.phase === "seriesResult") return;
+    const target = this.players.get(targetId);
+    const aliveCount = this.alivePlayers().length;
+    const reason = betRejectionReason({
+      mode: this.config.mode,
+      bettorAlive: p.alive,
+      isSelf: targetId === p.id,
+      targetAlive: !!target?.alive,
+      aliveCount,
+      available: p.marblesEarned,
+      stake,
+    });
+    if (reason) {
+      p.send?.({ t: "toast", text: reason, kind: "bad" });
+      return;
+    }
+    const finalStake = clampStake(stake, p.marblesEarned);
+    p.bet = { targetId, stake: finalStake, oddsAlive: aliveCount };
+    const mult = betMultiplier(aliveCount);
+    p.send?.({
+      t: "toast",
+      text: `🎲 Bet locked: ${finalStake} ${CURRENCY_ICON} on ${target!.name} at ${mult}× — pays ${finalStake * mult} ${CURRENCY_ICON} if they win it all.`,
+      kind: "good",
+    });
+    this.markDirty();
+  }
+
+  private cancelBet(p: Player): void {
+    if (!p.bet) return;
+    p.bet = undefined;
+    p.send?.({ t: "toast", text: "Bet pulled. Cold feet are a survival instinct you discovered too late.", kind: "info" });
+    this.markDirty();
+  }
+
+  // Pay out / collect every wager once the champion is known (hardcore only).
+  private settleBets(championId: string | null): void {
+    const winners: string[] = [];
+    for (const p of this.players.values()) {
+      if (!p.bet) continue;
+      const delta = settleBet(p.bet, championId);
+      const won = delta > 0;
+      const tgt = this.players.get(p.bet.targetId);
+      p.marblesEarned = Math.max(0, p.marblesEarned + delta);
+      if (won && !p.isBot) winners.push(`${p.name} (+${delta} ${CURRENCY_ICON})`);
+      if (!p.isBot) {
+        p.send?.({
+          t: "toast",
+          text: won
+            ? `🤑 DEAD POOL: your ${p.bet.stake} ${CURRENCY_ICON} on ${tgt?.name ?? "your pick"} cashed in — +${delta} ${CURRENCY_ICON}!`
+            : `💸 DEAD POOL: ${tgt?.name ?? "your pick"} let you down. There goes ${p.bet.stake} ${CURRENCY_ICON}.`,
+          kind: won ? "good" : "bad",
+        });
+      }
+      p.bet = undefined;
+    }
+    if (winners.length) {
+      this.systemChat(`🦅 The vultures feast: ${winners.join(", ")} called it from the afterlife.`);
+    }
   }
 
   // ---- series flow ----
@@ -282,9 +385,12 @@ export class GameRoom {
       p.points = 0;
       p.roundsSurvived = 0;
       p.title = undefined;
+      p.bet = undefined;
     }
     this.roundIndex = 0;
-    this.lastGame = null;
+    // Intentionally NOT clearing lastGame / recentGames here: they carry across
+    // series so a new series (Play Again) doesn't open on the game that just
+    // closed the previous one. Only the per-series freshness list resets.
     this.lastMapId = null;
     this.playedGames = [];
 
@@ -358,8 +464,11 @@ export class GameRoom {
       const canFinale = (g: GameId) => (GAMES[g].finale || GAMES[g].finaleCapable) && playable(g);
       let finales = allowList.filter(canFinale);
       if (!finales.length) finales = ALL_GAME_IDS.filter(canFinale);
-      const noRepeatFinale = finales.filter((g) => g !== this.lastGame);
-      const pool = noRepeatFinale.length ? noRepeatFinale : finales;
+      // Prefer a finale we haven't shown recently (across series), then at least
+      // not the immediately-previous game, then anything finale-capable.
+      const unseen = finales.filter((g) => !this.recentGames.includes(g));
+      const notLast = finales.filter((g) => g !== this.lastGame);
+      const pool = unseen.length ? unseen : notLast.length ? notLast : finales;
       if (pool.length) return pick(this.rng, pool);
     }
 
@@ -374,12 +483,20 @@ export class GameRoom {
       if (gentle.length) pool = gentle;
     }
 
-    // Variety first: draw from games not yet played this series. Only once the
-    // pool is exhausted do repeats become possible — and even then never the very
-    // last game back-to-back.
+    // Variety first, with constraints relaxed in order so the pool can never end
+    // up empty:
+    //   1. not played this series AND not in the room's recent tail (best variety)
+    //   2. not played this series (cross-series tail exhausted the options)
+    //   3. anything playable
+    const freshAndUnseen = pool.filter(
+      (g) => !this.playedGames.includes(g) && !this.recentGames.includes(g),
+    );
     const fresh = pool.filter((g) => !this.playedGames.includes(g));
-    let finalPool = fresh.length ? fresh : pool.filter((g) => g !== this.lastGame);
-    if (!finalPool.length) finalPool = pool;
+    let finalPool = freshAndUnseen.length ? freshAndUnseen : fresh.length ? fresh : pool;
+    // Hard guard against repeats: never serve the immediately-previous game
+    // back-to-back unless it is genuinely the only thing playable.
+    const noRepeat = finalPool.filter((g) => g !== this.lastGame);
+    if (noRepeat.length) finalPool = noRepeat;
     return pick(this.rng, finalPool);
   }
 
@@ -399,6 +516,11 @@ export class GameRoom {
     this.currentGame = game;
     this.currentMapId = mapId;
     if (!this.playedGames.includes(game)) this.playedGames.push(game);
+    // Track the room's recent tail (across series), newest last, capped to the
+    // window. Dedupe so a game can't pad out the tail and crowd out others.
+    this.recentGames = [...this.recentGames.filter((g) => g !== game), game].slice(
+      -RECENT_GAMES_WINDOW,
+    );
     const meta = gameMeta(game);
     // Night mode: a hardcore modifier that darkens random rounds. Only games
     // where local vision is fair & fun qualify (not e.g. Red Light, which needs
@@ -496,6 +618,24 @@ export class GameRoom {
       });
     }
     entries.sort((a, b) => a.placement - b.placement);
+
+    // Dead Pool: warn any spectator whose horse just died, so they can re-bet
+    // before the finale instead of silently eating the loss. Fires once — the
+    // round their pick is eliminated.
+    if (this.config.mode === "hardcore" && this.alivePlayers().length >= 2) {
+      for (const p of this.players.values()) {
+        if (!p.bet || p.isBot || !p.connected) continue;
+        if (!survivors.has(p.bet.targetId)) {
+          const tgt = this.players.get(p.bet.targetId);
+          p.send?.({
+            t: "toast",
+            text: `💸 Your pick ${tgt?.name ?? ""} is OUT — re-bet before the finale or kiss ${p.bet.stake} ${CURRENCY_ICON} goodbye.`,
+            kind: "bad",
+          });
+        }
+      }
+    }
+
     this.lastResult = {
       game: this.currentGame!,
       roundNumber: this.roundIndex + 1,
@@ -538,6 +678,13 @@ export class GameRoom {
       if (a.points !== b.points) return b.points - a.points;
       return b.marblesEarned - a.marblesEarned;
     });
+
+    // Settle the Dead Pool FIRST, so bet winnings/losses fold into marblesEarned
+    // before the placement bonuses, the standings, and the DB persist all read it.
+    if (this.config.mode === "hardcore") {
+      const championId = all[0] && all[0].alive ? all[0].id : null;
+      this.settleBets(championId);
+    }
 
     const standings: SeriesStanding[] = [];
     all.forEach((p, i) => {
@@ -611,6 +758,7 @@ export class GameRoom {
       p.points = 0;
       p.roundsSurvived = 0;
       p.title = undefined;
+      p.bet = undefined;
     }
     this.pushMeta();
   }

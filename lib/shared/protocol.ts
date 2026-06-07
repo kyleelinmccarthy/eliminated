@@ -9,12 +9,15 @@ import type {
 
 // ---- Client -> Server ----
 export type ClientMessage =
-  | { t: "hello"; clientId: string; name: string; characterId: string }
+  | { t: "hello"; clientId: string; name: string; characterId: string; accessories?: string[] }
   | { t: "createRoom"; config?: Partial<RoomConfig> }
   | { t: "joinRoom"; code: string }
   | { t: "leaveRoom" }
   | { t: "setName"; name: string }
   | { t: "setCharacter"; characterId: string }
+  | { t: "setAccessories"; accessories: string[] } // equip/unequip cosmetics (lobby)
+  | { t: "placeBet"; targetId: string; stake: number } // Dead Pool wager (hardcore spectator)
+  | { t: "cancelBet" }
   | { t: "setReady"; ready: boolean }
   | { t: "chat"; text: string }
   | { t: "emote"; kind: string }

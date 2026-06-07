@@ -28,6 +28,35 @@ export function GameControls({ game }: { game: GameId }) {
 function MovementControls({ game }: { game: GameId }) {
   const isThrow = game === "boomerang" || game === "dodgeball";
   const isSpike = game === "keepyuppy";
+  const youId = useGame((s) => s.youId);
+  const [tagHint, setTagHint] = useState<string | null>(null);
+
+  // Freeze Tag: role-aware coaching so it's obvious whether to chase or run — and
+  // exactly how to thaw a teammate. Reads your team + frozen state from the live
+  // snapshot (the server marks the freezer team in snapshot.data).
+  useEffect(() => {
+    if (game !== "tag") return;
+    const iv = setInterval(() => {
+      const cur = snapBuffer.cur;
+      if (!cur || cur.game !== "tag") return;
+      const me = cur.actors?.find((a) => a.id === youId);
+      if (!me) return setTagHint(null);
+      const d: any = cur.data || {};
+      const freezer = me.team === (d.freezerTeam ?? 0);
+      if (freezer) {
+        setTagHint("🔵 YOU'RE A FREEZER — chase the 🩷 pink runners and bump them to freeze. Catch at least ONE or you're eliminated!");
+      } else if (me.frozen) {
+        setTagHint("🧊 FROZEN! Hold still — a pink teammate can run over and touch you to thaw you back in.");
+      } else {
+        setTagHint(
+          d.deepFreeze
+            ? "🩷 DEEP FREEZE — thawing's off! Just don't let a glowing 🔵 freezer touch you."
+            : "🩷 YOU RUN — dodge the glowing 🔵 freezers. Touch a frozen 🧊 teammate to THAW them.",
+        );
+      }
+    }, 150);
+    return () => clearInterval(iv);
+  }, [game, youId]);
 
   useEffect(() => {
     const keys = new Set<string>();
@@ -169,16 +198,18 @@ function MovementControls({ game }: { game: GameId }) {
           </button>
         </div>
       )}
-      <div className="hint">
-        {isThrow
-          ? "WASD move · mouse aim · click/SPACE throw · SHIFT dash"
-          : isSpike
-            ? "WASD move under your balloon to bat it · SPACE / SPIKE to pop theirs"
-            : game === "redlight"
-              ? "W / ↑ runs forward · A·D to dodge · FREEZE the instant it's RED"
-              : game === "koth"
-                ? "WASD / Arrows to move · bump rivals into the lava!"
-                : "WASD / Arrows to move"}
+      <div className={`hint ${game === "tag" ? "tag" : ""}`}>
+        {game === "tag" && tagHint
+          ? tagHint
+          : isThrow
+            ? "WASD move · mouse aim · click/SPACE throw · SHIFT dash"
+            : isSpike
+              ? "WASD move under your balloon to bat it · SPACE / SPIKE to pop theirs"
+              : game === "redlight"
+                ? "W / ↑ runs forward · A·D to dodge · FREEZE the instant it's RED"
+                : game === "koth"
+                  ? "WASD / Arrows to move · bump rivals into the lava!"
+                  : "WASD / Arrows to move"}
       </div>
       <style jsx>{`
         .brawl-btns {
@@ -233,6 +264,15 @@ function MovementControls({ game }: { game: GameId }) {
           padding: 4px 12px;
           border-radius: 10px;
           pointer-events: none;
+          text-align: center;
+          max-width: 92vw;
+        }
+        .hint.tag {
+          font-size: 0.86rem;
+          font-weight: 700;
+          color: var(--ink);
+          background: rgba(0, 0, 0, 0.5);
+          padding: 6px 16px;
         }
       `}</style>
     </>
@@ -651,26 +691,46 @@ function MashControls({ label, action, color }: { label: string; action: "pull" 
   );
 }
 
-// ---------------- chutes & ladders (roll the die) ----------------
+// ---------------- chutes & ladders (roll the die, or pick a fork) ----------------
 const ROLL_CD_MS = 700; // mirrors the server's per-roll cooldown
+// fork side outcome → label. -1 unknown, 0 = back to start, 1 = abyss (death).
+const FORK_HINT: Record<number, string> = { [-1]: "❓ unknown", 0: "🌀 back to start", 1: "💀 ABYSS" };
+const FORK_CLASS: Record<number, string> = { [-1]: "unknown", 0: "reset", 1: "death" };
 function RollControls() {
   const youId = useGame((s) => s.youId);
   const [cd, setCd] = useState(0); // 1 = just rolled, 0 = ready
   const [finished, setFinished] = useState(false);
+  const [choosing, setChoosing] = useState(-1); // chute id you're deciding (-1 = none)
+  const [fork, setFork] = useState({ left: -1, right: -1 }); // revealed side outcomes
   const cdRef = useRef(0);
   const finRef = useRef(false);
+  const chooseRef = useRef(-1);
 
   const roll = () => {
-    if (cdRef.current > 0 || finRef.current) return;
+    if (cdRef.current > 0 || finRef.current || chooseRef.current >= 0) return;
     net.input({ kind: "tap" });
     audio.sfx("drum");
     cdRef.current = ROLL_CD_MS;
     setCd(1);
   };
 
-  // keyboard: SPACE rolls
+  const choose = (v: "L" | "R") => {
+    if (chooseRef.current < 0) return;
+    net.input({ kind: "choose", value: v });
+    audio.sfx("blip");
+    chooseRef.current = -1; // optimistic — the next snapshot confirms our fate
+    setChoosing(-1);
+  };
+
+  // keyboard: SPACE rolls; at a fork, ←/A and →/D pick a side
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (chooseRef.current >= 0) {
+        const k = e.key.toLowerCase();
+        if (k === "arrowleft" || k === "a") { e.preventDefault(); choose("L"); }
+        if (k === "arrowright" || k === "d") { e.preventDefault(); choose("R"); }
+        return;
+      }
       if (e.key === " ") {
         e.preventDefault();
         roll();
@@ -680,7 +740,7 @@ function RollControls() {
     return () => window.removeEventListener("keydown", down);
   }, []);
 
-  // tick the local cooldown bar + watch for topping out
+  // tick the local cooldown bar + watch our state (finished / at a fork)
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
@@ -693,18 +753,51 @@ function RollControls() {
       }
       const cur = snapBuffer.cur;
       if (cur?.game === "chutesladders") {
-        const me = (cur.data as any)?.climbers?.find((c: any) => c.id === youId);
+        const d: any = cur.data || {};
+        const me = (d.climbers || []).find((c: any) => c.id === youId);
         const fin = !!me?.finished;
         if (fin !== finRef.current) {
           finRef.current = fin;
           setFinished(fin);
         }
+        const ch = me?.choosing ?? -1;
+        if (ch !== chooseRef.current) {
+          chooseRef.current = ch;
+          setChoosing(ch);
+        }
+        // surface any sides already revealed by earlier blobs (learn the pattern!)
+        const f = ch >= 0 ? (d.chutes || []).find((c: any) => c.id === ch) : null;
+        const left = f ? (f.left ?? -1) : -1;
+        const right = f ? (f.right ?? -1) : -1;
+        setFork((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
       }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [youId]);
+
+  // at a fork: the decisive LEFT / RIGHT gamble takes over the controls
+  if (choosing >= 0) {
+    return (
+      <div className="roll">
+        <div className="forktitle">⚠ A CHUTE! Pick a side — one drops you to the START, the other to the ABYSS</div>
+        <div className="forkrow">
+          <button className={`forkbtn ${FORK_CLASS[fork.left]}`} onPointerDown={() => choose("L")}>
+            <span className="arrow">◀</span>
+            <span className="big">LEFT</span>
+            <span className="sub">{FORK_HINT[fork.left]}</span>
+          </button>
+          <button className={`forkbtn ${FORK_CLASS[fork.right]}`} onPointerDown={() => choose("R")}>
+            <span className="arrow">▶</span>
+            <span className="big">RIGHT</span>
+            <span className="sub">{FORK_HINT[fork.right]}</span>
+          </button>
+        </div>
+        <ChuteStyles />
+      </div>
+    );
+  }
 
   const ready = cd <= 0 && !finished;
   return (
@@ -714,85 +807,151 @@ function RollControls() {
         {!finished && <span className="cdfill" style={{ transform: `scaleX(${1 - cd})` }} />}
       </button>
       <div className="hint">
-        {finished ? "🏁 SAFE at the top — you made it. Enjoy the view." : "SMASH to roll · 🪜 climb to safety · 🐍 snakes can KILL · reach the top!"}
+        {finished ? "🏁 SAFE at the top — you made it. Enjoy the view." : "SMASH to roll · 🪜 climb · 🌀/💀 a CHUTE makes you gamble · reach 🏁 before the clock!"}
       </div>
-      <style jsx>{`
-        .roll {
-          position: absolute;
-          bottom: 36px;
-          left: 50%;
-          transform: translateX(-50%);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 10px;
-        }
-        .rollbtn {
-          position: relative;
-          overflow: hidden;
-          width: 210px;
-          height: 120px;
-          border-radius: 26px;
-          border: 4px solid #fff4;
-          font-family: var(--font-display);
-          font-size: 2.2rem;
-          font-weight: 800;
-          color: #fff;
-          background: radial-gradient(circle at 30% 25%, #ffd36b, #e8930f);
-          box-shadow: 0 8px 0 #9c5f06;
-          user-select: none;
-          touch-action: none;
-        }
-        .rollbtn .lbl {
-          position: relative;
-          z-index: 2;
-          text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
-        }
-        .rollbtn.ready {
-          background: radial-gradient(circle at 30% 25%, #aef5b5, #2bb84d);
-          box-shadow: 0 8px 0 #157a2e;
-          animation: rollPulse 1.1s ease-in-out infinite;
-        }
-        .rollbtn.safe {
-          background: radial-gradient(circle at 30% 25%, #7defff, #00bcd4);
-          box-shadow: 0 8px 0 #00838f;
-          opacity: 0.85;
-        }
-        .rollbtn:active {
-          transform: translateY(6px);
-          box-shadow: 0 2px 0 #9c5f06;
-        }
-        .cdfill {
-          position: absolute;
-          left: 0;
-          bottom: 0;
-          width: 100%;
-          height: 7px;
-          transform-origin: left;
-          background: #fff;
-          opacity: 0.85;
-          z-index: 1;
-        }
-        @keyframes rollPulse {
-          0%,
-          100% {
-            transform: scale(1);
-          }
-          50% {
-            transform: scale(1.04);
-          }
-        }
-        .hint {
-          font-size: 0.85rem;
-          color: var(--ink-dim);
-          background: rgba(0, 0, 0, 0.35);
-          padding: 4px 12px;
-          border-radius: 10px;
-          text-align: center;
-          max-width: 92vw;
-        }
-      `}</style>
+      <ChuteStyles />
     </div>
+  );
+}
+
+// Shared styles for both the roll button and the fork buttons (DRY).
+function ChuteStyles() {
+  return (
+    <style jsx>{`
+      .roll {
+        position: absolute;
+        bottom: 36px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .rollbtn {
+        position: relative;
+        overflow: hidden;
+        width: 210px;
+        height: 120px;
+        border-radius: 26px;
+        border: 4px solid #fff4;
+        font-family: var(--font-display);
+        font-size: 2.2rem;
+        font-weight: 800;
+        color: #fff;
+        background: radial-gradient(circle at 30% 25%, #ffd36b, #e8930f);
+        box-shadow: 0 8px 0 #9c5f06;
+        user-select: none;
+        touch-action: none;
+      }
+      .rollbtn .lbl {
+        position: relative;
+        z-index: 2;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+      }
+      .rollbtn.ready {
+        background: radial-gradient(circle at 30% 25%, #aef5b5, #2bb84d);
+        box-shadow: 0 8px 0 #157a2e;
+        animation: rollPulse 1.1s ease-in-out infinite;
+      }
+      .rollbtn.safe {
+        background: radial-gradient(circle at 30% 25%, #7defff, #00bcd4);
+        box-shadow: 0 8px 0 #00838f;
+        opacity: 0.85;
+      }
+      .rollbtn:active {
+        transform: translateY(6px);
+        box-shadow: 0 2px 0 #9c5f06;
+      }
+      .cdfill {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 7px;
+        transform-origin: left;
+        background: #fff;
+        opacity: 0.85;
+        z-index: 1;
+      }
+      @keyframes rollPulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.04);
+        }
+      }
+      .forktitle {
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: 0.95rem;
+        color: var(--yellow);
+        background: rgba(0, 0, 0, 0.5);
+        padding: 6px 16px;
+        border-radius: 12px;
+        text-align: center;
+        max-width: 92vw;
+        animation: rollPulse 1s ease-in-out infinite;
+      }
+      .forkrow {
+        display: flex;
+        gap: 28px;
+      }
+      .forkbtn {
+        width: 150px;
+        height: 110px;
+        border-radius: 20px;
+        border: 3px solid #b06be6;
+        background: linear-gradient(180deg, rgba(176, 107, 230, 0.42), rgba(176, 107, 230, 0.16));
+        color: #fff;
+        font-family: var(--font-display);
+        font-weight: 800;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        box-shadow: 0 6px 0 #5e2a8f;
+        touch-action: none;
+        user-select: none;
+      }
+      .forkbtn .arrow {
+        font-size: 1.5rem;
+        line-height: 1;
+      }
+      .forkbtn .big {
+        font-size: 1.5rem;
+      }
+      .forkbtn .sub {
+        font-size: 0.8rem;
+        opacity: 0.95;
+      }
+      .forkbtn.reset {
+        border-color: #26c6da;
+        background: linear-gradient(180deg, rgba(38, 198, 218, 0.45), rgba(38, 198, 218, 0.16));
+        box-shadow: 0 6px 0 #00838f;
+      }
+      .forkbtn.death {
+        border-color: #ff4d6d;
+        background: linear-gradient(180deg, rgba(255, 77, 109, 0.45), rgba(255, 77, 109, 0.16));
+        box-shadow: 0 6px 0 #a01030;
+      }
+      .forkbtn:active {
+        transform: translateY(4px);
+        box-shadow: 0 2px 0 #5e2a8f;
+      }
+      .hint {
+        font-size: 0.85rem;
+        color: var(--ink-dim);
+        background: rgba(0, 0, 0, 0.35);
+        padding: 4px 12px;
+        border-radius: 10px;
+        text-align: center;
+        max-width: 92vw;
+      }
+    `}</style>
   );
 }
 

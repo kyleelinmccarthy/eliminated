@@ -22,7 +22,7 @@ export function IntroOverlay() {
       ? `The final game. ${spoken}.`
       : `Game ${intro.roundNumber}. ${spoken}.`;
     if (intro.night) line += " Lights out.";
-    audio.speak(line);
+    audio.speak(line, { voice: "m" }); // male announcer for game announcements
   }, [intro]);
 
   useEffect(() => {

@@ -29,6 +29,7 @@ interface GameState {
   clientId: string;
   name: string;
   characterId: string;
+  accessories: string[]; // equipped cosmetic ids (≤ one per slot)
   profile: ProfileSummary | null;
   room: RoomMetaState | null;
   youId: string | null;
@@ -44,6 +45,7 @@ export const useGame = create<GameState>((set) => ({
   clientId: "",
   name: "Blob",
   characterId: "avo",
+  accessories: [],
   profile: null,
   room: null,
   youId: null,
@@ -58,7 +60,17 @@ const LS = {
   id: "eliminated:clientId",
   name: "eliminated:name",
   char: "eliminated:char",
+  acc: "eliminated:acc",
 };
+
+function loadAccessories(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS.acc) || "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 function loadLocal() {
   if (typeof window === "undefined") return;
@@ -69,7 +81,8 @@ function loadLocal() {
   }
   const name = localStorage.getItem(LS.name) || "Blob" + Math.floor(Math.random() * 1000);
   const characterId = localStorage.getItem(LS.char) || "avo";
-  useGame.setState({ clientId, name, characterId });
+  const accessories = loadAccessories();
+  useGame.setState({ clientId, name, characterId, accessories });
 }
 
 function wsUrl(): string {
@@ -107,8 +120,8 @@ class Net {
     this.ws.onopen = () => {
       this.backoff = 500;
       useGame.setState({ status: "open", error: null });
-      const { clientId, name, characterId } = useGame.getState();
-      this.send({ t: "hello", clientId, name, characterId });
+      const { clientId, name, characterId, accessories } = useGame.getState();
+      this.send({ t: "hello", clientId, name, characterId, accessories });
       this.startPing();
     };
     this.ws.onmessage = (ev) => this.onMessage(ev.data);
@@ -272,6 +285,18 @@ class Net {
     useGame.setState({ characterId });
     localStorage.setItem(LS.char, characterId);
     this.send({ t: "setCharacter", characterId });
+  }
+  setAccessories(accessories: string[]) {
+    useGame.setState({ accessories });
+    localStorage.setItem(LS.acc, JSON.stringify(accessories));
+    this.send({ t: "setAccessories", accessories });
+  }
+  // Dead Pool: wager `stake` series-Marbles that `targetId` wins it all.
+  placeBet(targetId: string, stake: number) {
+    this.send({ t: "placeBet", targetId, stake });
+  }
+  cancelBet() {
+    this.send({ t: "cancelBet" });
   }
   setName(name: string) {
     useGame.setState({ name });

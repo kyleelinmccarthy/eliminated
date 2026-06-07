@@ -15,6 +15,9 @@ import { RoundResultOverlay } from "./overlays/RoundResultOverlay";
 import { SeriesResultOverlay } from "./overlays/SeriesResultOverlay";
 import { GameControls } from "./GameControls";
 import { MuteButton } from "./MuteButton";
+import { FeedbackButton } from "./FeedbackButton";
+import { DeadPool } from "./DeadPool";
+import { Chat } from "./Chat";
 
 export function GameStage() {
   const phase = useGame((s) => s.room?.phase);
@@ -94,7 +97,7 @@ function announceDeaths(
       const sorted = [...deadOthers].sort((a, b) => a - b);
       const named = sorted.map((n) => formatPlayerNumber(n).split("").join(" "));
       const label = sorted.length === 1 ? "Player" : "Players";
-      audio.speak(`${label} ${named.join(", ")}, eliminated.`);
+      audio.speak(`${label} ${named.join(", ")}, eliminated.`, { voice: "f" }); // female voice for eliminations
       lastAnnounce.current = now;
     }
   }
@@ -144,6 +147,7 @@ function PlayingView() {
   const prevPhase = useRef<string>("");
   const numbersRef = useRef<Map<string, number>>(new Map());
   const variantsRef = useRef<Map<string, number>>(new Map());
+  const accessoriesRef = useRef<Map<string, string[]>>(new Map());
   const prevAliveRef = useRef<Map<string, boolean>>(new Map());
   const deathAtRef = useRef<Map<string, number>>(new Map());
   const lastAnnounceRef = useRef(0);
@@ -157,6 +161,10 @@ function PlayingView() {
     numbersRef.current = m;
     // same-icon disambiguation rims, keyed by player id like the numbers above
     variantsRef.current = characterVariants(room?.players ?? []);
+    // equipped cosmetics, keyed by player id, so the canvas can draw everyone's drip
+    const am = new Map<string, string[]>();
+    for (const p of room?.players ?? []) am.set(p.id, p.accessories ?? []);
+    accessoriesRef.current = am;
   }, [room?.players]);
 
   useEffect(() => {
@@ -252,7 +260,7 @@ function PlayingView() {
         const alpha = Math.min(1, (now - snapBuffer.recvAt) / TICK_MS);
         fx.update(dt);
         const mapId = room?.currentMapId ?? null;
-        renderFrame(ctx, W, H, cur, prev, alpha, { youId, time: now, fx, mapId, numbers: numbersRef.current, variants: variantsRef.current, deaths: deathAtRef.current });
+        renderFrame(ctx, W, H, cur, prev, alpha, { youId, time: now, fx, mapId, numbers: numbersRef.current, variants: variantsRef.current, accessories: accessoriesRef.current, deaths: deathAtRef.current });
       } else {
         ctx.clearRect(0, 0, W, H);
       }
@@ -312,6 +320,7 @@ function PlayingView() {
         <div className="hud-pill">
           🩸 <strong>{hud.alive}</strong> left
         </div>
+        <FeedbackButton variant="hud" />
         <MuteButton />
       </div>
 
@@ -321,11 +330,10 @@ function PlayingView() {
 
       {showElim && playing && <EliminatedOverlay number={myNumber} />}
 
-      {hud.youDown && playing && !showElim && (
-        <div className="spectate">
-          💀 Player {formatPlayerNumber(myNumber)} eliminated — enjoy the rest of the show from the great beyond…
-        </div>
-      )}
+      {hud.youDown && playing && !showElim && <SpectatorChat number={myNumber} />}
+
+      {/* Dead Pool: eliminated Hardcore spectators wager on who wins it all */}
+      {hud.youDown && playing && !showElim && room?.config.mode === "hardcore" && <DeadPool />}
 
       {playing && hud.game && !hud.youDown && (
         <GameControls game={hud.game} />
@@ -372,18 +380,46 @@ function PlayingView() {
           color: var(--yellow);
           font-size: 1.2rem;
         }
-        .spectate {
+      `}</style>
+    </div>
+  );
+}
+
+// Once you're out, the lobby chat follows you into the match. A dock in the
+// corner so the eliminated can read along and heckle the living (and each other)
+// from the great beyond — the same broadcast chat as the lobby, so anything said
+// here is waiting in the log when survivors return. pointer-events:auto so typing
+// works over the canvas; only shown to spectators (hud.youDown), never mid-play.
+function SpectatorChat({ number }: { number?: number }) {
+  return (
+    <div className="spectate-dock">
+      <div className="spectate-head">
+        💀 Player {formatPlayerNumber(number)} eliminated — heckle from the great beyond…
+      </div>
+      <Chat compact />
+      <style jsx>{`
+        .spectate-dock {
           position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          background: rgba(0, 0, 0, 0.55);
+          left: 12px;
+          bottom: 12px;
+          z-index: 20;
+          width: min(340px, 82vw);
+          background: var(--panel);
           border: 2px solid var(--red);
           border-radius: 16px;
-          padding: 14px 26px;
+          padding: 12px;
+          backdrop-filter: blur(8px);
+          pointer-events: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .spectate-head {
           font-family: var(--font-display);
           font-weight: 700;
-          font-size: 1.2rem;
+          font-size: 0.82rem;
+          line-height: 1.25;
+          color: var(--red);
         }
       `}</style>
     </div>
@@ -597,7 +633,7 @@ function GoOverlay({ startAt }: { startAt: number }) {
 
 function EliminatedOverlay({ number }: { number?: number }) {
   useEffect(() => {
-    audio.speak("You have been eliminated.");
+    audio.speak("You have been eliminated.", { voice: "f" }); // female voice for eliminations
   }, []);
   return (
     <div className="elim" aria-live="assertive">
@@ -717,10 +753,10 @@ function handleSnapshotAudio(
     if (d.phase === "call" && d.command && key !== prevPhase.current) {
       if (d.command.freeze) {
         audio.sfx("alarm");
-        audio.speak("Freeze!");
+        audio.speak("Freeze!", { voice: "m" }); // male announcer for game commands
       } else {
         audio.sfx("beep");
-        audio.speak(`Simon says, ${d.command.label}`);
+        audio.speak(`Simon says, ${d.command.label}`, { voice: "m" }); // male announcer for game commands
       }
       prevPhase.current = key;
     }

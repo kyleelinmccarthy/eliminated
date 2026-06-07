@@ -15,7 +15,15 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:all": "node scripts/smoke-all.mjs",
     "smoke:survivor": "node scripts/verify-single-survivor.mjs",
-    "sim:feedback": "tsx scripts/sim-feedback.mts"
+    "sim:feedback": "tsx scripts/sim-feedback.mts",
+    "sim:chutes": "tsx scripts/sim-chutes.mts",
+    "sim:tug": "tsx scripts/sim-tug.mts",
+    "sim:tag": "tsx scripts/sim-tag.mts",
+    "sim:mingle": "tsx scripts/sim-mingle.mts",
+    "sim:feedback-form": "tsx scripts/sim-feedback-form.mts",
+    "sim:betting": "tsx scripts/sim-betting.mts",
+    "sim:accessories": "tsx scripts/sim-accessories.mts",
+    "test": "npm run typecheck && npm run sim:tug && npm run sim:tag && npm run sim:mingle && npm run sim:chutes && npm run sim:betting && npm run sim:accessories && npm run sim:feedback-form && npm run sim:feedback"
   },
   "engines": {
     "node": "20.x"

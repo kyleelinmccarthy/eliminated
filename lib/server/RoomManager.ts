@@ -4,6 +4,7 @@ import { Player } from "./Player";
 import type { ClientMessage, ServerMessage } from "../shared/protocol";
 import { TICK_MS, MAX_PLAYERS } from "../shared/constants";
 import { makeRoomCode, makeId } from "../shared/util";
+import { sanitizeEquipped } from "../shared/accessories";
 import { getOrCreateProfile, setProfileName, profileKey } from "./db";
 
 interface Conn {
@@ -13,6 +14,7 @@ interface Conn {
   userId: string | null; // verified Better Auth user id (from the WS upgrade), or null
   name: string;
   characterId: string;
+  accessories: string[]; // equipped cosmetics, carried like name/characterId
   roomCode?: string;
   playerId?: string;
   alive: boolean; // ws heartbeat
@@ -45,6 +47,7 @@ export class RoomManager {
       userId,
       name: "Blob",
       characterId: "avo",
+      accessories: [],
       alive: true,
     });
   }
@@ -93,6 +96,7 @@ export class RoomManager {
         conn.clientId = profileKey(conn.userId, conn.guestClientId);
         conn.name = (msg.name || "Blob").slice(0, 16);
         conn.characterId = msg.characterId || "avo";
+        conn.accessories = sanitizeEquipped(msg.accessories);
         // Echo the GUEST id back so the client keeps its stable localStorage
         // anchor (needed for the one-time merge and for reverting on sign-out).
         this.send(ws, { t: "welcome", clientId: conn.guestClientId });
@@ -115,19 +119,31 @@ export class RoomManager {
         return;
     }
 
+    // Identity updates apply at the connection level FIRST, so they stick even
+    // when no room exists yet (e.g. tweaking name/character on the home page
+    // before hosting or joining). makePlayer() reads conn.name/conn.characterId
+    // when a room is later created or joined — if we only synced these while in a
+    // room, home-page changes would be silently dropped and the lobby would show
+    // the stale hello-time identity.
+    // Identity updates apply at the connection level FIRST, so they stick even
+    // when no room exists yet (e.g. tweaking name/character on the home page
+    // before hosting or joining). makePlayer() reads conn.name/conn.characterId
+    // when a room is later created or joined — if we only synced these while in a
+    // room, home-page changes would be silently dropped and the lobby would show
+    // the stale hello-time identity.
+    if (msg.t === "setName") {
+      conn.name = msg.name.slice(0, 16) || conn.name;
+      setProfileName(conn.clientId, conn.name).catch(() => {});
+    }
+    if (msg.t === "setCharacter") conn.characterId = msg.characterId || conn.characterId;
+    if (msg.t === "setAccessories") conn.accessories = sanitizeEquipped(msg.accessories);
+
     // room-scoped messages
     if (!conn.roomCode || !conn.playerId) return;
     const room = this.rooms.get(conn.roomCode);
     if (!room) return;
     const player = room.players.get(conn.playerId);
     if (!player) return;
-
-    // keep persisted name in sync
-    if (msg.t === "setName") {
-      conn.name = msg.name.slice(0, 16) || conn.name;
-      setProfileName(conn.clientId, conn.name).catch(() => {});
-    }
-    if (msg.t === "setCharacter") conn.characterId = msg.characterId;
 
     room.handle(player, msg);
   }
@@ -205,6 +221,7 @@ export class RoomManager {
       clientId: conn.clientId,
       name: conn.name,
       characterId: conn.characterId,
+      accessories: conn.accessories,
     });
   }
 

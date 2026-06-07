@@ -3,6 +3,7 @@
 import type { Snapshot, Actor } from "../../shared/types";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { getMap } from "../../shared/maps";
+import { pullerStandX } from "../../shared/tug";
 import { drawArena, drawBlob, drawShadow, drawProp, drawSword } from "./draw";
 import type { FxSystem } from "./fx";
 import { simonEmoji, simonByKey } from "../../shared/simon";
@@ -17,6 +18,7 @@ export interface RenderCtx {
   mapId: string | null;
   numbers?: Map<string, number>; // playerId -> Squid Game number
   variants?: Map<string, number>; // playerId -> duplicate-icon accent slot (0 = unique)
+  accessories?: Map<string, string[]>; // playerId -> equipped cosmetic ids
   deaths?: Map<string, number>; // actorId -> client time (ms) first seen dead, for the coffin drop-in
 }
 
@@ -136,7 +138,7 @@ function renderArena(
         time: rc.time,
         name: a.name,
         number: rc.numbers?.get(a.id),
-        variant: rc.variants?.get(a.id),
+        variant: rc.variants?.get(a.id), accessories: rc.accessories?.get(a.id),
         you: a.id === rc.youId,
       });
       if (a.burning) drawFlames(ctx, a.x, a.y, a.scale ?? 1, rc.time);
@@ -159,6 +161,10 @@ function renderArena(
       for (const b of d.balloons) drawBalloon(ctx, b, b.owner === rc.youId, rc.time);
     }
   }
+
+  // freeze tag: a constant role banner so it's obvious to EVERYONE who freezes
+  // and who runs (the per-player hint coaches you; this reminds the whole table)
+  if (cur.game === "tag") drawTagBanner(ctx, d);
 
   // fx in arena space
   rc.fx.draw(ctx);
@@ -212,7 +218,7 @@ function drawProphuntField(ctx: CanvasRenderingContext2D, d: any, actors: Actor[
             time: rc.time,
             name: a.name,
             number: rc.numbers?.get(a.id),
-            variant: rc.variants?.get(a.id),
+            variant: rc.variants?.get(a.id), accessories: rc.accessories?.get(a.id),
             you: youAreThis,
           });
           drawSword(ctx, a.x, a.y, a.facing ?? 0, a.scale ?? 1, a.progress ?? 0);
@@ -238,7 +244,7 @@ function drawProphuntField(ctx: CanvasRenderingContext2D, d: any, actors: Actor[
             time: rc.time,
             name: a.name,
             number: rc.numbers?.get(a.id),
-            variant: rc.variants?.get(a.id),
+            variant: rc.variants?.get(a.id), accessories: rc.accessories?.get(a.id),
             you: youAreThis,
           }),
       });
@@ -354,8 +360,59 @@ function drawRedlightGround(ctx: CanvasRenderingContext2D, d: any, t: number) {
   ctx.restore();
 }
 
+function drawMinglePlatform(ctx: CanvasRenderingContext2D, p: any, phase: string, n: number, t: number) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  // base disc
+  const g = ctx.createRadialGradient(0, -p.r * 0.3, p.r * 0.2, 0, 0, p.r);
+  g.addColorStop(0, "#3a2b5e");
+  g.addColorStop(1, "#221836");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+  ctx.fill();
+  // rotating carousel wedges (the platform spins while the music plays)
+  ctx.save();
+  ctx.rotate(p.spin || 0);
+  const spokes = 8;
+  for (let i = 0; i < spokes; i++) {
+    ctx.fillStyle = i % 2 === 0 ? "rgba(255,213,79,0.16)" : "rgba(255,79,154,0.14)";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, p.r, (i / spokes) * Math.PI * 2, ((i + 1) / spokes) * Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  // rim
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.beginPath();
+  ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+  ctx.stroke();
+  // center: the music note while playing; the CALLED NUMBER once it stops
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if ((phase === "mingle" || phase === "flash") && n) {
+    ctx.fillStyle = "#ffd54f";
+    ctx.font = "800 22px 'Baloo 2', sans-serif";
+    ctx.fillText("GROUP OF", 0, -p.r * 0.46);
+    ctx.fillStyle = "#fff";
+    ctx.font = `900 ${Math.round(p.r * 0.95)}px 'Baloo 2', sans-serif`;
+    ctx.fillText(String(n), 0, p.r * 0.08);
+  } else {
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 0.006);
+    ctx.font = `${Math.round(p.r * 0.5)}px serif`;
+    ctx.fillText("🎵", 0, 0);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  ctx.textBaseline = "alphabetic";
+}
+
 function drawMingleGround(ctx: CanvasRenderingContext2D, d: any, t: number) {
   if (!d.rooms) return;
+  if (d.platform) drawMinglePlatform(ctx, d.platform, d.phase, d.n, t);
   for (const r of d.rooms) {
     const active = d.phase === "mingle" || d.phase === "flash";
     ctx.save();
@@ -374,6 +431,40 @@ function drawMingleGround(ctx: CanvasRenderingContext2D, d: any, t: number) {
     }
     ctx.restore();
   }
+}
+
+// Freeze Tag role banner — a fixed two-tone strip at the top of the arena so
+// both teams (and spectators) always know who does what. Drawn in arena space.
+function drawTagBanner(ctx: CanvasRenderingContext2D, d: any) {
+  const segs = [
+    { text: "🔵 BLUE freezes", color: TEAM_COLORS[0] },
+    { text: "   ·   ", color: "rgba(255,255,255,0.55)" },
+    { text: "🩷 PINK runs & thaws", color: TEAM_COLORS[1] },
+  ];
+  ctx.save();
+  ctx.font = "800 26px 'Baloo 2', sans-serif";
+  ctx.textBaseline = "middle";
+  const widths = segs.map((s) => ctx.measureText(s.text).width);
+  const total = widths.reduce((a, b) => a + b, 0);
+  const y = 40;
+  ctx.fillStyle = "rgba(0,0,0,0.42)";
+  roundRect(ctx, ARENA_W / 2 - total / 2 - 18, y - 22, total + 36, 44, 14);
+  ctx.fill();
+  let x = ARENA_W / 2 - total / 2;
+  ctx.textAlign = "left";
+  for (let i = 0; i < segs.length; i++) {
+    ctx.fillStyle = segs[i].color;
+    ctx.fillText(segs[i].text, x, y);
+    x += widths[i];
+  }
+  if (d.deepFreeze) {
+    ctx.textAlign = "center";
+    ctx.font = "800 20px 'Baloo 2', sans-serif";
+    ctx.fillStyle = "#bbe9ff";
+    ctx.fillText("❄️ DEEP FREEZE — no more thawing!", ARENA_W / 2, y + 34);
+  }
+  ctx.restore();
+  ctx.textBaseline = "alphabetic";
 }
 
 // Powerups are a GAMBLE now — every orb looks identical (no icon, no good/bad
@@ -640,7 +731,7 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
       r: 12,
       time: rc.time,
       anim: w.finished ? "cheer" : w.alive ? "idle" : "dead",
-      variant: rc.variants?.get(w.id),
+      variant: rc.variants?.get(w.id), accessories: rc.accessories?.get(w.id),
     });
     if (w.id === activeId && w.alive && !w.finished) {
       ctx.strokeStyle = "#ffd54f";
@@ -740,7 +831,7 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
         anim: "idle",
         name: active.name,
         number: rc.numbers?.get(active.id),
-        variant: rc.variants?.get(active.id),
+        variant: rc.variants?.get(active.id), accessories: rc.accessories?.get(active.id),
         you: active.id === rc.youId,
       });
     }
@@ -879,8 +970,9 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
     const losing = side < 0 ? loserTeam === 0 : loserTeam === 1;
     const edge = side < 0 ? pitL : pitR; // inner edge of this team's platform
     team.forEach((p: any, i: number) => {
-      // anchored back from the pit edge, in two rows, leaning toward the rope
-      let bx = edge - side * (60 + i * 58) + lean;
+      // anchored back from the pit edge on their OWN ledge, in two rows, leaning
+      // toward the rope (see lib/shared/tug.ts — keeps them off the pit at start)
+      let bx = pullerStandX(edge, side < 0 ? -1 : 1, i, lean);
       let by = groundY - 18 + (i % 2 === 0 ? -26 : 14);
       let anim = "run";
       let rot = 0;
@@ -908,7 +1000,7 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
         facing: side < 0 ? 0 : Math.PI, // face the rope
         name: p.name,
         number: rc.numbers?.get(p.id),
-        variant: rc.variants?.get(p.id),
+        variant: rc.variants?.get(p.id), accessories: rc.accessories?.get(p.id),
         you: p.id === rc.youId,
       });
       ctx.restore();
@@ -968,7 +1060,7 @@ function renderRps(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
 
   // opponent (top)
   if (oppChar) {
-    drawBlob(ctx, oppChar, W / 2, H * 0.26, { r: 56, time: rc.time, anim: "idle", name: oppName, number: rc.numbers?.get(oppId), variant: rc.variants?.get(oppId), facing: Math.PI / 2 });
+    drawBlob(ctx, oppChar, W / 2, H * 0.26, { r: 56, time: rc.time, anim: "idle", name: oppName, number: rc.numbers?.get(oppId), variant: rc.variants?.get(oppId), accessories: rc.accessories?.get(oppId), facing: Math.PI / 2 });
     drawHands(ctx, W / 2, H * 0.26 + 80, oppThrows, oppKeep, duel.status);
   } else {
     ctx.font = "800 26px 'Baloo 2', sans-serif";
@@ -987,7 +1079,7 @@ function renderRps(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
 
   // you (bottom)
   if (meChar) {
-    drawBlob(ctx, meChar, W / 2, H * 0.74, { r: 60, time: rc.time, anim: duel.status === "done" && duel.winner === (youAreA ? duel.a : duel.b) ? "cheer" : "idle", name: meName, number: rc.numbers?.get(meId), variant: rc.variants?.get(meId), you: true, facing: -Math.PI / 2 });
+    drawBlob(ctx, meChar, W / 2, H * 0.74, { r: 60, time: rc.time, anim: duel.status === "done" && duel.winner === (youAreA ? duel.a : duel.b) ? "cheer" : "idle", name: meName, number: rc.numbers?.get(meId), variant: rc.variants?.get(meId), accessories: rc.accessories?.get(meId), you: true, facing: -Math.PI / 2 });
     drawHands(ctx, W / 2, H * 0.74 - 90, meThrows, meKeep, duel.status);
   }
 }
@@ -1064,7 +1156,7 @@ function renderJump(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sn
       anim: j.airborne ? "cheer" : "idle",
       name: j.name,
       number: rc.numbers?.get(j.id),
-      variant: rc.variants?.get(j.id),
+      variant: rc.variants?.get(j.id), accessories: rc.accessories?.get(j.id),
       you: j.id === rc.youId,
     });
   });
@@ -1207,7 +1299,7 @@ function renderSimon(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
         anim: safe ? "cheer" : "idle",
         name: n <= 8 ? c.name : undefined,
         number: rc.numbers?.get(c.id),
-        variant: rc.variants?.get(c.id),
+        variant: rc.variants?.get(c.id), accessories: rc.accessories?.get(c.id),
         you: c.id === rc.youId,
       });
 
@@ -1252,9 +1344,13 @@ function renderSimon(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
 const board = {
   pos: new Map<string, { x: number; y: number }>(),
   prevSq: new Map<string, number>(),
+  prevAlive: new Map<string, boolean>(),
   label: new Map<string, { text: string; color: string; at: number }>(),
   lastT: 0,
 };
+// Chute fork outcome → colour / icon. -1 unknown, 0 = back to start, 1 = abyss.
+const CHUTE_COL: Record<number, string> = { [-1]: "#b06be6", 0: "#26c6da", 1: "#ff4d6d" };
+const CHUTE_ICON: Record<number, string> = { [-1]: "❓", 0: "🌀", 1: "💀" };
 const DIE_PIPS: Record<number, number[][]> = {
   1: [[0, 0]],
   2: [[-1, -1], [1, 1]],
@@ -1266,10 +1362,12 @@ const DIE_PIPS: Record<number, number[][]> = {
 
 function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Snapshot, rc: RenderCtx) {
   const d: any = cur.data || {};
-  const cols: number = d.cols || 10;
-  const rows: number = d.rows || 10;
-  const goal: number = d.goal || 100;
+  const cols: number = d.cols || 8;
+  const rows: number = d.rows || 8;
+  const goal: number = d.goal || 64;
   const climbers: any[] = d.climbers || [];
+  const chutes: any[] = d.chutes || [];
+  const chuteSquares = new Set<number>(chutes.map((s) => s.square));
 
   // backdrop
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -1278,20 +1376,49 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // ---- board geometry (a centered square grid, header space up top) ----
-  const size = Math.max(180, Math.min(W - 96, H - 150));
+  // ---- board geometry: a big centred square grid, slim header for the timer ----
+  const headerH = 52;
+  const size = Math.max(220, Math.min(W - 40, H - headerH - 96));
   const cell = size / cols;
   const bx = (W - size) / 2;
-  const by = 78;
+  const by = headerH;
 
   const cellCenter = (square: number): { x: number; y: number } => {
-    if (square <= 0) return { x: bx + cell * 0.5, y: by + size + cell * 0.62 }; // start pad
+    if (square <= 0) return { x: bx + cell * 0.5, y: by + size + cell * 0.6 }; // start pad
     const s = Math.min(square, goal);
     const r = Math.floor((s - 1) / cols); // 0 = bottom row
     const within = (s - 1) % cols;
     const col = r % 2 === 0 ? within : cols - 1 - within; // serpentine
     return { x: bx + col * cell + cell / 2, y: by + (rows - 1 - r) * cell + cell / 2 };
   };
+
+  // ---- prominent countdown: reach the top before it empties or you're culled ----
+  const tl = Math.max(0, d.timeLeft ?? 0);
+  const dur = d.duration || 1;
+  const frac = Math.max(0, Math.min(1, tl / dur));
+  const lowTime = tl < 8;
+  const tcol = tl <= 5 ? "#ff4d6d" : tl <= 12 ? "#ffd54f" : "#69f0ae";
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.font = "800 19px 'Baloo 2', sans-serif";
+  ctx.fillStyle = "#fff";
+  ctx.fillText(`🪜 RACE TO 🏁 ${goal} — reach the top or be eliminated`, W / 2, 18);
+  const barY = 28;
+  const barH = 14;
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  roundRect(ctx, bx, barY, size, barH, 7);
+  ctx.fill();
+  const pulse = lowTime ? 0.6 + 0.4 * Math.sin(rc.time * 0.02) : 1;
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = tcol;
+  roundRect(ctx, bx, barY, Math.max(0, size * frac), barH, 7);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.textAlign = "right";
+  ctx.font = `800 ${lowTime ? 20 : 16}px 'Baloo 2', sans-serif`;
+  ctx.fillStyle = tcol;
+  ctx.fillText(`⏱ ${Math.ceil(tl)}s`, bx + size, barY - 2);
+  ctx.restore();
 
   // ---- the grid of numbered cells ----
   ctx.save();
@@ -1301,17 +1428,17 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
     const within = (s - 1) % cols;
     const col = r % 2 === 0 ? within : cols - 1 - within;
     const checker = (r + col) % 2 === 0;
-    ctx.fillStyle = checker ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.02)";
+    ctx.fillStyle = checker ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.025)";
     ctx.fillRect(c.x - cell / 2, c.y - cell / 2, cell, cell);
     if (s === goal) {
-      ctx.fillStyle = "rgba(105,240,174,0.18)";
+      ctx.fillStyle = "rgba(105,240,174,0.2)";
       ctx.fillRect(c.x - cell / 2, c.y - cell / 2, cell, cell);
     }
-    ctx.fillStyle = s === goal ? "#69f0ae" : "rgba(201,184,230,0.45)";
+    ctx.fillStyle = s === goal ? "#69f0ae" : "rgba(201,184,230,0.5)";
     ctx.font = `${Math.round(cell * 0.2)}px 'Baloo 2', sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText(s === goal ? "🏁100" : String(s), c.x - cell / 2 + 4, c.y - cell / 2 + 3);
+    ctx.fillText(s === goal ? `🏁${goal}` : String(s), c.x - cell / 2 + 5, c.y - cell / 2 + 4);
   }
   // outer frame
   ctx.strokeStyle = "rgba(255,255,255,0.18)";
@@ -1320,19 +1447,20 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
   ctx.textBaseline = "alphabetic";
   ctx.restore();
 
-  // ---- ladders ----
+  // ---- ladders (auto-climb) ----
   for (const l of d.ladders || []) drawLadder(ctx, cellCenter(l.from), cellCenter(l.to), cell);
-  // ---- snakes / chutes ----
-  for (const s of d.chutes || []) drawSnake(ctx, cellCenter(s.from), cellCenter(s.to), cell, rc.time);
+  // ---- chutes (forks: pick a side — one resets you, one is the abyss) ----
+  for (const s of chutes) drawChuteFork(ctx, cellCenter(s.square), cell, s.left ?? -1, s.right ?? -1, rc.time);
 
-  // ---- advance eased pawn positions ----
+  // ---- advance eased pawn positions + latch pop labels for what just happened ----
   const dt = board.lastT ? Math.min(0.05, Math.max(0, (rc.time - board.lastT) / 1000)) : 0;
   board.lastT = rc.time;
   for (const c of climbers) {
     const target = cellCenter(c.square);
     const prevSq = board.prevSq.get(c.id);
+    const wasAlive = board.prevAlive.get(c.id);
     let p = board.pos.get(c.id);
-    // snap on (re)spawn / round reset: nobody has moved off the start yet
+    // snap on (re)spawn / round reset / a reset-to-start bounce
     if (!p || c.square <= 0 || prevSq === undefined) {
       p = { x: target.x, y: target.y };
       board.pos.set(c.id, p);
@@ -1340,22 +1468,21 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
       p.x += (target.x - p.x) * Math.min(1, dt * 10);
       p.y += (target.y - p.y) * Math.min(1, dt * 10);
     }
-    // latch a pop label when a ladder/snake fired (a jump bigger than a die roll)
-    if (prevSq !== undefined && c.square !== prevSq) {
+    // just died? label the abyss (a chute death) vs running out of time
+    if (wasAlive && !c.alive) {
+      const fellInPit = prevSq !== undefined && chuteSquares.has(prevSq);
+      board.label.set(c.id, fellInPit
+        ? { text: "ABYSS! 💀", color: "#ff4d6d", at: rc.time }
+        : { text: "OUT! ⏱", color: "#ff8a80", at: rc.time });
+    } else if (prevSq !== undefined && c.square !== prevSq) {
       const delta = c.square - prevSq;
-      if (delta > 6) board.label.set(c.id, { text: `+${delta} 🪜`, color: "#69f0ae", at: rc.time });
-      else if (delta < 0) board.label.set(c.id, { text: `${delta} 🐍`, color: "#ff5252", at: rc.time });
-      else if (c.square >= goal) board.label.set(c.id, { text: "SAFE! 🏁", color: "#69f0ae", at: rc.time });
+      if (c.square >= goal) board.label.set(c.id, { text: "SAFE! 🏁", color: "#69f0ae", at: rc.time });
+      else if (c.square === 0 && prevSq > 0) board.label.set(c.id, { text: "BACK TO START 🌀", color: "#26c6da", at: rc.time });
+      else if (delta > 6) board.label.set(c.id, { text: `CLIMB +${delta} 🪜`, color: "#69f0ae", at: rc.time });
     }
     board.prevSq.set(c.id, c.square);
+    board.prevAlive.set(c.id, c.alive);
   }
-
-  // ---- who's in the danger zone? Anyone not yet SAFE at the top is at risk once
-  // the clock runs low — reach square 100 or you're eliminated. ----
-  const lowTime = (d.timeLeft ?? 99) < 8;
-  const inDanger = new Set(
-    lowTime ? climbers.filter((c) => c.alive && !c.finished).map((c) => c.id) : [],
-  );
 
   // ---- cluster pawns sharing a cell so they don't fully overlap ----
   const bySquare = new Map<number, any[]>();
@@ -1375,7 +1502,7 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
     return { ox: Math.cos(ang) * rad, oy: Math.sin(ang) * rad };
   };
 
-  const pawnR = Math.max(11, cell * 0.3);
+  const pawnR = Math.max(13, cell * 0.3);
 
   // draw order: coffins first (under), then living pawns sorted so YOU is on top
   const drawList = [...climbers].sort((a, b) => {
@@ -1395,17 +1522,28 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
 
     if (!c.alive) {
       drawCoffin(ctx, x, y, pawnR / PLAYER_RADIUS, rc.time, coffinAge(rc, c.id));
+      drawPopLabel(ctx, c.id, x, y, pawnR, rc.time);
       continue;
     }
 
-    // danger ring under at-risk pawns (pulses harder as the clock runs down)
-    if (inDanger.has(c.id)) {
-      const pulse = 0.5 + 0.5 * Math.sin(rc.time * (lowTime ? 0.018 : 0.008));
+    // at a fork: highlight + prompt (loud for YOU). This is the key decision beat.
+    if (c.choosing >= 0) {
+      const fp = 0.5 + 0.5 * Math.sin(rc.time * 0.012);
       ctx.save();
-      ctx.strokeStyle = `rgba(255,60,60,${0.55 + 0.4 * pulse})`;
+      ctx.strokeStyle = `rgba(176,107,230,${0.55 + 0.4 * fp})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(x, y, pawnR * 1.55, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else if (lowTime && !c.finished && c.id === rc.youId) {
+      // only ring YOU when the clock is low — keeps the board readable
+      const dpulse = 0.5 + 0.5 * Math.sin(rc.time * 0.02);
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,60,60,${0.55 + 0.4 * dpulse})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(x, y, pawnR * 1.35, 0, Math.PI * 2);
+      ctx.arc(x, y, pawnR * 1.4, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -1416,7 +1554,7 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
       anim: c.finished ? "cheer" : "idle",
       name: group.length <= 3 ? c.name : undefined,
       number: rc.numbers?.get(c.id),
-      variant: rc.variants?.get(c.id),
+      variant: rc.variants?.get(c.id), accessories: rc.accessories?.get(c.id),
       you: c.id === rc.youId,
     });
     if (c.finished) {
@@ -1428,35 +1566,38 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
     // last-rolled die face, floating beside the pawn
     if (c.die > 0) drawDie(ctx, x + pawnR * 1.2, y - pawnR * 1.2, Math.max(14, pawnR * 0.9), c.die);
 
-    // pop label (ladder/snake/safe)
-    const lab = board.label.get(c.id);
-    if (lab) {
-      const age = (rc.time - lab.at) / 1000;
-      if (age < 0.9) {
-        ctx.save();
-        ctx.globalAlpha = 1 - age / 0.9;
-        ctx.fillStyle = lab.color;
-        ctx.font = `800 ${Math.round(pawnR * 0.95)}px 'Baloo 2', sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(lab.text, x, y - pawnR * 2.1 - age * 26);
-        ctx.restore();
-      } else {
-        board.label.delete(c.id);
-      }
+    // fork prompt sits above everything so it's never missed
+    if (c.choosing >= 0) {
+      const fp = 0.5 + 0.5 * Math.sin(rc.time * 0.012);
+      const me = c.id === rc.youId;
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.fillStyle = me ? "#ffd54f" : "rgba(255,213,79,0.9)";
+      ctx.font = `800 ${Math.round(pawnR * (me ? 1.05 : 0.8))}px 'Baloo 2', sans-serif`;
+      ctx.fillText("◀ PICK ▶", x, y - pawnR * 2.0 - fp * 4);
+      ctx.restore();
     }
-  }
 
-  // ---- header ----
-  ctx.textAlign = "center";
-  ctx.font = "800 26px 'Baloo 2', sans-serif";
-  ctx.fillStyle = "#fff";
-  ctx.fillText("🪜 Roll to 100 — or the snakes eat the stragglers", W / 2, 40);
-  const youInDanger = rc.youId && inDanger.has(rc.youId);
-  if (youInDanger) {
-    ctx.font = "800 20px 'Baloo 2', sans-serif";
-    ctx.fillStyle = lowTime ? "#ff5252" : "#ffd54f";
-    ctx.fillText(lowTime ? "⚠ YOU'RE IN THE PIT — ROLL!" : "⚠ You're lowest — keep climbing!", W / 2, 64);
+    drawPopLabel(ctx, c.id, x, y, pawnR, rc.time);
   }
+}
+
+// A short-lived floating label above a pawn (ladder climb / reset / safe / death).
+function drawPopLabel(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, pawnR: number, time: number) {
+  const lab = board.label.get(id);
+  if (!lab) return;
+  const age = (time - lab.at) / 1000;
+  if (age >= 1.1) {
+    board.label.delete(id);
+    return;
+  }
+  ctx.save();
+  ctx.globalAlpha = 1 - age / 1.1;
+  ctx.fillStyle = lab.color;
+  ctx.font = `800 ${Math.round(pawnR * 0.95)}px 'Baloo 2', sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText(lab.text, x, y - pawnR * 2.4 - age * 26);
+  ctx.restore();
 }
 
 function drawLadder(ctx: CanvasRenderingContext2D, a: { x: number; y: number }, b: { x: number; y: number }, cell: number) {
@@ -1493,61 +1634,61 @@ function drawLadder(ctx: CanvasRenderingContext2D, a: { x: number; y: number }, 
   ctx.restore();
 }
 
-function drawSnake(
+// A chute is a FORK: one square that splits two ways. `left`/`right` are the side
+// outcomes (-1 unknown, 0 = back to start, 1 = abyss). Until a side is taken it's
+// a mystery (❓); once someone tries it, it's revealed (🌀 reset / 💀 abyss) for all.
+function drawChuteFork(
   ctx: CanvasRenderingContext2D,
-  head: { x: number; y: number },
-  tail: { x: number; y: number },
+  center: { x: number; y: number },
   cell: number,
+  left: number,
+  right: number,
   t: number,
 ) {
-  const dx = tail.x - head.x;
-  const dy = tail.y - head.y;
-  const len = Math.hypot(dx, dy) || 1;
-  const nx = -dy / len;
-  const ny = dx / len;
+  const armX = cell * 0.62;
+  const armY = cell * 0.5;
+  const ends = [
+    { o: left, x: center.x - armX, y: center.y + armY },
+    { o: right, x: center.x + armX, y: center.y + armY },
+  ];
+  const pulse = 0.7 + 0.3 * Math.sin(t * 0.005);
   ctx.save();
-  // wavy body
-  ctx.strokeStyle = "#9c5bd6";
-  ctx.lineWidth = Math.max(5, cell * 0.16);
+  // tint the fork square so it reads as a hazard
+  ctx.fillStyle = "rgba(176,107,230,0.16)";
+  ctx.fillRect(center.x - cell / 2, center.y - cell / 2, cell, cell);
+  // the two slides diverging from the square
   ctx.lineCap = "round";
-  ctx.beginPath();
-  const segs = Math.max(6, Math.floor(len / 18));
-  for (let i = 0; i <= segs; i++) {
-    const f = i / segs;
-    const wob = Math.sin(f * Math.PI * 3 + t * 0.004) * cell * 0.16 * (1 - f * 0.5);
-    const x = head.x + dx * f + nx * wob;
-    const y = head.y + dy * f + ny * wob;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  ctx.lineWidth = Math.max(4, cell * 0.09);
+  for (const e of ends) {
+    ctx.strokeStyle = CHUTE_COL[e.o] || CHUTE_COL[-1];
+    ctx.globalAlpha = e.o === -1 ? pulse : 1;
+    ctx.beginPath();
+    ctx.moveTo(center.x, center.y);
+    ctx.lineTo(e.x, e.y);
+    ctx.stroke();
   }
-  ctx.stroke();
-  // belly stripe
-  ctx.strokeStyle = "rgba(255,255,255,0.25)";
-  ctx.lineWidth = Math.max(1.5, cell * 0.05);
-  ctx.stroke();
-  // head
-  const hr = Math.max(8, cell * 0.2);
+  ctx.globalAlpha = 1;
+  // fork node
   ctx.fillStyle = "#7e3fb8";
   ctx.beginPath();
-  ctx.arc(head.x, head.y, hr, 0, Math.PI * 2);
+  ctx.arc(center.x, center.y, cell * 0.15, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.beginPath();
-  ctx.arc(head.x - hr * 0.35, head.y - hr * 0.3, hr * 0.22, 0, Math.PI * 2);
-  ctx.arc(head.x + hr * 0.35, head.y - hr * 0.3, hr * 0.22, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#1a0a26";
-  ctx.beginPath();
-  ctx.arc(head.x - hr * 0.35, head.y - hr * 0.3, hr * 0.1, 0, Math.PI * 2);
-  ctx.arc(head.x + hr * 0.35, head.y - hr * 0.3, hr * 0.1, 0, Math.PI * 2);
-  ctx.fill();
-  // forked tongue
-  ctx.strokeStyle = "#ff5252";
-  ctx.lineWidth = Math.max(1.5, hr * 0.16);
-  ctx.beginPath();
-  ctx.moveTo(head.x, head.y + hr * 0.7);
-  ctx.lineTo(head.x, head.y + hr * 1.25);
-  ctx.stroke();
+  // end badges with their icon
+  const br = cell * 0.21;
+  for (const e of ends) {
+    ctx.fillStyle = CHUTE_COL[e.o] || CHUTE_COL[-1];
+    ctx.globalAlpha = e.o === -1 ? pulse : 1;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, br, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#fff";
+    ctx.font = `${Math.round(br * 1.25)}px serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(CHUTE_ICON[e.o] || CHUTE_ICON[-1], e.x, e.y + 1);
+  }
+  ctx.textBaseline = "alphabetic";
   ctx.restore();
 }
 
@@ -2002,7 +2143,7 @@ function renderParlor(
       anim: "idle",
       name: a.name,
       number: rc.numbers?.get(a.id),
-      variant: rc.variants?.get(a.id),
+      variant: rc.variants?.get(a.id), accessories: rc.accessories?.get(a.id),
       you: a.id === rc.youId,
     });
     ctx.globalAlpha = 1;

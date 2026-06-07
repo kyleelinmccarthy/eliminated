@@ -36,6 +36,8 @@ interface Row {
 }
 
 const memory = new Map<string, Row>();
+// In-memory fallback store for feedback when no DB is configured (local dev / CI).
+const feedbackMemory: StoredFeedback[] = [];
 
 // The effective storage key for a connection/session: an authenticated user is
 // keyed by their account (which the server trusts), a guest by their clientId.
@@ -86,6 +88,18 @@ async function doInit(): Promise<void> {
     await client.execute(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_userId ON profiles(userId) WHERE userId IS NOT NULL",
     );
+    // Player feedback — separate table; never touches profiles.
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        createdAt TEXT NOT NULL,
+        category TEXT NOT NULL,
+        message TEXT NOT NULL,
+        email TEXT,
+        context TEXT,
+        clientId TEXT
+      )
+    `);
     ready = true;
     console.log("[db] ready", url ? "(turso)" : "(local sqlite)");
   } catch (err) {
@@ -263,14 +277,17 @@ export async function recordSeries(rewards: SeriesReward[]): Promise<void> {
   }
 }
 
-export async function unlockCharacter(clientId: string, characterId: string, cost: number): Promise<ProfileSummary | { error: string }> {
+// Buy any cosmetic (a character OR an accessory — ownership is one shared list of
+// ids). Idempotent: re-buying something already owned is a no-op, never a second
+// charge. Generic by design so the single /api/unlock endpoint prices both.
+export async function unlockCosmetic(clientId: string, cosmeticId: string, cost: number): Promise<ProfileSummary | { error: string }> {
   await initDb();
   const row = (await loadRow(clientId)) ?? defaultRow(clientId, "Blob");
   const unlocked = JSON.parse(row.unlocked || "[]");
-  if (unlocked.includes(characterId)) return rowToSummary(row);
+  if (unlocked.includes(cosmeticId)) return rowToSummary(row);
   if (row.marbles < cost) return { error: "Not enough Marbles. Survive more, die less." };
   row.marbles -= cost;
-  unlocked.push(characterId);
+  unlocked.push(cosmeticId);
   row.unlocked = JSON.stringify(unlocked);
   await saveRow(row);
   return rowToSummary(row);
@@ -282,6 +299,49 @@ export interface LeaderRow {
   wins: number;
   gamesPlayed: number;
   bestTitle: string;
+}
+
+// ---- Player feedback ----------------------------------------------------
+export interface StoredFeedback {
+  createdAt: string; // ISO timestamp
+  category: string;
+  message: string;
+  email: string | null;
+  context: string | null;
+  clientId: string | null;
+}
+
+export async function saveFeedback(fb: StoredFeedback): Promise<void> {
+  await initDb();
+  if (client) {
+    await client.execute({
+      sql: "INSERT INTO feedback (createdAt, category, message, email, context, clientId) VALUES (?, ?, ?, ?, ?, ?)",
+      args: [fb.createdAt, fb.category, fb.message, fb.email, fb.context, fb.clientId],
+    });
+  } else {
+    feedbackMemory.push(fb);
+  }
+}
+
+// Most-recent feedback first. Reads from the DB when configured, else the
+// in-memory fallback — so callers (and tests) don't care which store is active.
+export async function recentFeedback(limit = 20): Promise<StoredFeedback[]> {
+  await initDb();
+  if (client) {
+    const res = await client.execute({
+      sql: "SELECT createdAt, category, message, email, context, clientId FROM feedback ORDER BY id DESC LIMIT ?",
+      args: [limit],
+    });
+    return res.rows.map((r: any) => ({
+      createdAt: r.createdAt,
+      category: r.category,
+      message: r.message,
+      email: r.email ?? null,
+      context: r.context ?? null,
+      clientId: r.clientId ?? null,
+    }));
+  }
+  return [...feedbackMemory].slice(-limit).reverse();
 }
 
 export async function leaderboard(limit = 25): Promise<LeaderRow[]> {

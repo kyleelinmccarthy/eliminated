@@ -8,14 +8,19 @@ export function BlobAvatar({
   animate = false,
   anim = "idle",
   variant = 0,
+  accessories,
 }: {
   characterId: string;
   size?: number;
   animate?: boolean;
   anim?: string;
   variant?: number; // >0 = same-icon accent rim, matching the in-game disambiguation
+  accessories?: string[]; // equipped cosmetic ids to draw over the blob
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  // Stable dependency for the equipped list so the effect re-runs when it changes
+  // (arrays are compared by identity otherwise).
+  const accKey = (accessories ?? []).join(",");
 
   useEffect(() => {
     const cv = ref.current;
@@ -33,12 +38,14 @@ export function BlobAvatar({
         time: t,
         anim,
         variant,
+        accessories,
       });
       if (animate) raf = requestAnimationFrame(render);
     };
     render(animate ? performance.now() : 0);
     return () => cancelAnimationFrame(raf);
-  }, [characterId, size, animate, anim, variant]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [characterId, size, animate, anim, variant, accKey]);
 
   return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} />;
 }

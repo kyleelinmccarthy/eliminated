@@ -11,6 +11,7 @@ import { CharacterPicker } from "./CharacterPicker";
 import { BlobAvatar } from "./BlobAvatar";
 import { GamePreview } from "./GamePreview";
 import { MuteButton } from "./MuteButton";
+import { FeedbackButton } from "./FeedbackButton";
 
 // Client-only: better-auth's authClient.useSession() isn't SSR-safe (it crashes
 // resolving useRef during server render), and the account UI is pure interactive
@@ -119,6 +120,7 @@ export function Landing() {
         <Link className="pill" href="/changelog">
           📓 Patch Notes
         </Link>
+        <FeedbackButton />
         <AccountButton />
         <MuteButton />
       </div>
@@ -252,6 +254,8 @@ export function Landing() {
             <Link href="/privacy">Privacy</Link>
             <span aria-hidden>·</span>
             <Link href="/terms">Terms</Link>
+            <span aria-hidden>·</span>
+            <FeedbackButton variant="link" label="Feedback" />
           </nav>
           <p className="footer-copy">
             © {new Date().getFullYear()} Eliminated. All rights reserved. No

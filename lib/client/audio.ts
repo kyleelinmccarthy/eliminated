@@ -26,9 +26,11 @@ class AudioEngine {
   muted = false;
   private musicTimer: ReturnType<typeof setInterval> | null = null;
   private step = 0;
-  // Cached TTS voice for the Game Master — voices load async, so this fills in
+  // Cached TTS voices for the Game Master — a female voice for eliminations and
+  // a male voice for game announcements. Voices load async, so these fill in
   // once they're available and we re-pick on the voiceschanged event.
-  private voice: SpeechSynthesisVoice | null = null;
+  private voiceF: SpeechSynthesisVoice | null = null;
+  private voiceM: SpeechSynthesisVoice | null = null;
   private voiceWatched = false;
 
   init() {
@@ -63,43 +65,63 @@ class AudioEngine {
     }
   }
 
-  // Pick a recognizably female voice for the Game Master, falling back to any
-  // English voice and finally whatever exists. Voices populate asynchronously,
-  // so subscribe to voiceschanged the first time and re-pick when they arrive.
-  private pickVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
+  // Pick the Game Master voice for the requested gender, falling back to any
+  // English voice of the right gender and finally whatever exists. Voices
+  // populate asynchronously, so subscribe to voiceschanged the first time and
+  // re-pick both voices when they arrive.
+  private pickVoice(synth: SpeechSynthesis, gender: "f" | "m"): SpeechSynthesisVoice | null {
     if (!this.voiceWatched) {
       this.voiceWatched = true;
       synth.addEventListener?.("voiceschanged", () => {
-        this.voice = this.chooseVoice(synth);
+        this.voiceF = this.chooseVoice(synth, "f");
+        this.voiceM = this.chooseVoice(synth, "m");
       });
     }
-    if (!this.voice) this.voice = this.chooseVoice(synth);
-    return this.voice;
+    if (gender === "m") {
+      if (!this.voiceM) this.voiceM = this.chooseVoice(synth, "m");
+      return this.voiceM;
+    }
+    if (!this.voiceF) this.voiceF = this.chooseVoice(synth, "f");
+    return this.voiceF;
   }
 
-  private chooseVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
+  private chooseVoice(synth: SpeechSynthesis, gender: "f" | "m"): SpeechSynthesisVoice | null {
     const voices = synth.getVoices();
     if (!voices.length) return null;
-    // Common female voice names across OSes/browsers (no standard gender flag).
+    // Common gendered voice names across OSes/browsers (no standard gender flag).
+    // Word boundaries matter: \bmale\b must NOT match "Female", \bman\b not "Woman".
     const female =
-      /female|samantha|victoria|zira|karen|moira|tessa|fiona|serena|allison|susan|kate|veena|google uk english female|google us english/i;
+      /\b(?:female|woman|samantha|victoria|allison|ava|susan|karen|moira|tessa|fiona|serena|veena|kate|zira|aria|jenny|michelle|catherine|hazel|heather|nicky)\b/i;
+    const male =
+      /\b(?:male|man|alex|daniel|fred|david|mark|george|james|arthur|oliver|thomas|aaron|gordon|rishi|guy|davis|ralph|albert|bruce|tom|tony)\b/i;
     const en = voices.filter((v) => /^en/i.test(v.lang));
-    return en.find((v) => female.test(v.name)) ?? voices.find((v) => female.test(v.name)) ?? en[0] ?? voices[0];
+    const pool = en.length ? en : voices;
+    const want = gender === "m" ? male : female;
+    const avoid = gender === "m" ? female : male;
+    return (
+      pool.find((v) => want.test(v.name)) ?? // a voice of the desired gender
+      pool.find((v) => !avoid.test(v.name)) ?? // failing that, at least not the other gender
+      pool[0] ??
+      voices[0]
+    );
   }
 
   // Spoken voiceline via the browser's built-in TTS — no audio assets needed.
-  // A flat, slightly slow female voice for a robotic Game Master PA delivery.
-  speak(text: string, opts: { rate?: number; pitch?: number } = {}) {
+  // A flat, slightly slow robotic Game Master PA delivery. voice "f" (the
+  // default) is the female eliminations voice; "m" is the male announcer.
+  speak(text: string, opts: { rate?: number; pitch?: number; voice?: "f" | "m" } = {}) {
     if (this.muted || typeof window === "undefined") return;
     const synth = window.speechSynthesis;
     if (!synth) return;
     try {
       synth.cancel(); // crisp, no overlap with a previous line
       const u = new SpeechSynthesisUtterance(text);
-      const v = this.pickVoice(synth);
+      const gender = opts.voice ?? "f";
+      const v = this.pickVoice(synth, gender);
       if (v) u.voice = v;
       u.rate = opts.rate ?? 0.85;
-      u.pitch = opts.pitch ?? 0.75; // flat + low keeps it robotic without losing the female timbre
+      // flat + low keeps it robotic without losing the gendered timbre
+      u.pitch = opts.pitch ?? (gender === "m" ? 0.7 : 0.8);
       u.volume = 1;
       synth.speak(u);
     } catch {

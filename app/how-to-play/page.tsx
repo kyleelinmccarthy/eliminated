@@ -4,6 +4,14 @@ import { GAMES, ALL_GAME_IDS } from "@/lib/shared/games";
 import { MAPS } from "@/lib/shared/maps";
 import { CURRENCY, CURRENCY_ICON } from "@/lib/shared/constants";
 import { POWERUPS, ALL_POWERUPS } from "@/lib/shared/powerups";
+import { ACCESSORIES, ACCESSORY_SLOTS } from "@/lib/shared/accessories";
+
+const SLOT_NAME: Record<string, string> = {
+  head: "🎩 Hats",
+  eyes: "🕶️ Eyewear",
+  neck: "🧣 Neckwear",
+  ear: "🌸 Behind the Ear",
+};
 
 export const metadata = { title: "How to Play — Eliminated" };
 
@@ -160,9 +168,59 @@ export default function HowToPlay() {
           <p className="dim tiny">
             Survive rounds to earn {CURRENCY} {CURRENCY_ICON} — the only thing here that outlives the players. Win the
             series for a fat champion bonus and a shiny <strong>title</strong> to lord over the deceased. Spend your
-            hoard on fancier blobs (it does not improve your odds, only the optics of your demise). Totals are saved and
-            ranked forever on the <Link href="/leaderboard">Wall of Survivors</Link>.
+            hoard on fancier blobs and accessories (it does not improve your odds, only the optics of your demise).
+            Totals are saved and ranked forever on the <Link href="/leaderboard">Wall of Survivors</Link>.
           </p>
+        </div>
+
+        <div className="panel htp-section">
+          <h3>👒 Dress to Die (Accessories)</h3>
+          <p className="dim tiny">
+            Blow your {CURRENCY} {CURRENCY_ICON} on cosmetics that ride over <em>any</em> blob — bought in the lobby
+            under <strong>“Dress your blob.”</strong> You can wear <strong>one item per slot at once</strong>, so a hat,
+            shades, a bandana and a little something behind the ear all stack into one magnificent ensemble that
+            everyone sees in every game. It is purely decorative. You will look fantastic and die anyway.
+          </p>
+          <div className="htp-games">
+            {ACCESSORY_SLOTS.map((slot) => (
+              <div key={slot} className="card">
+                <strong style={{ fontFamily: "var(--font-display)" }}>{SLOT_NAME[slot]}</strong>
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.5 }}>
+                  {ACCESSORIES.filter((a) => a.slot === slot).map((a) => (
+                    <li key={a.id} className="tiny">
+                      <strong>{a.name}</strong> — {a.price} {CURRENCY_ICON}
+                      <span className="dim"> · {a.catchphrase}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel htp-section">
+          <h3>☠️ The Dead Pool (Hardcore betting)</h3>
+          <p className="dim tiny">
+            Eliminated in Hardcore? Death is no longer a spectator sport. While the survivors fight it out, open the{" "}
+            <strong>Dead Pool</strong> and wager the {CURRENCY} {CURRENCY_ICON} you earned <em>this run</em> on who'll be
+            the last blob standing — so you keep earning from beyond the grave.
+          </p>
+          <ul className="dim tiny" style={{ margin: "8px 0 0", paddingLeft: 20, lineHeight: 1.6 }}>
+            <li>
+              <strong>Odds scale with the field.</strong> Call the winner while five blobs remain and it pays{" "}
+              <strong>5×</strong>; hold out for the 1v1 final and it's even money. Bold early calls pay the most — and
+              risk the most.
+            </li>
+            <li>
+              <strong>Your horse can die.</strong> If your pick gets boxed up, you're warned to re-bet before the finale.
+              Ignore it and your wager dies with them.
+            </li>
+            <li>
+              <strong>Settled at the crowning.</strong> Win and the payout lands on your series total; lose and the stake
+              is gone. Either way, the leaderboard remembers.
+            </li>
+            <li>It's Hardcore-only — Casual blobs respawn, so there's no afterlife to bet from.</li>
+          </ul>
         </div>
 
         <div style={{ textAlign: "center", marginTop: 24 }}>

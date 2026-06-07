@@ -2,44 +2,31 @@ import { ArenaGame, type GameContext, type ArenaActor, type MinigameResult } fro
 import type { GameId, Snapshot } from "../../shared/types";
 import { ARENA_W, ARENA_H } from "../../shared/constants";
 import { dist } from "../../shared/util";
-
-interface Room {
-  x: number;
-  y: number;
-  r: number;
-}
+import { mingleRooms, MINGLE_PLATFORM, type MingleRoom } from "../../shared/mingle";
 
 export class Mingle extends ArenaGame {
   id: GameId = "mingle";
-  private rooms: Room[] = [];
+  private rooms: MingleRoom[] = [];
   private phase: "wander" | "mingle" | "flash" = "wander";
   private timer = 2.5;
   private callN = 2;
   private round = 0;
   private startCount = 0;
+  private spin = 0; // platform rotation (visual; advanced each tick)
   private elimOrder: { id: string; note?: string }[] = [];
   private lastEval: { roomCounts: number[] } = { roomCounts: [] };
 
   start(): void {
     const ps = this.ctx.players;
     this.startCount = ps.length;
-    // grid of rooms
-    const cols = 4;
-    const rows = 2;
-    const mx = 220;
-    const my = 200;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        this.rooms.push({
-          x: mx + (c * (ARENA_W - 2 * mx)) / (cols - 1),
-          y: my + (r * (ARENA_H - 2 * my)) / (rows - 1),
-          r: 96,
-        });
-      }
-    }
+    // circular rooms arranged evenly in a ring around the central platform
+    this.rooms = mingleRooms();
+    // everyone STARTS on the spinning platform (music's playing), packed into a
+    // tidy ring inside it so nobody spills out over a room.
     ps.forEach((p, i) => {
       const ang = (i / ps.length) * Math.PI * 2;
-      this.addActor(p, ARENA_W / 2 + Math.cos(ang) * 120, ARENA_H / 2 + Math.sin(ang) * 90);
+      const rad = MINGLE_PLATFORM.r * 0.6;
+      this.addActor(p, MINGLE_PLATFORM.x + Math.cos(ang) * rad, MINGLE_PLATFORM.y + Math.sin(ang) * rad);
     });
     this.phase = "wander";
     this.timer = 2.5;
@@ -69,6 +56,7 @@ export class Mingle extends ArenaGame {
   tick(dt: number, _now: number): void {
     this.elapsed += dt;
     this.timer -= dt;
+    this.spin += dt * 0.6; // the platform keeps turning while the music plays
 
     for (const a of this.actors.values()) {
       if (!a.alive) continue;
@@ -99,19 +87,32 @@ export class Mingle extends ArenaGame {
 
   private evaluate() {
     const counts = this.roomCounts();
-    for (const a of this.aliveActors()) {
+    const alive = this.aliveActors();
+    // split the field into safe (exact group size) and doomed (wrong size / on
+    // the platform). A player stranded on the platform has roomOf === -1.
+    const doomed: ArenaActor[] = [];
+    for (const a of alive) {
       const ri = this.roomOf(a);
-      const ok = ri >= 0 && counts[ri] === this.callN;
-      if (!ok) {
-        a.alive = false;
-        a.anim = "dead";
-        const note = ri < 0 ? "No room!" : "Wrong group size!";
-        this.elimOrder.push({ id: a.id, note });
-        this.boom("death", a.x, a.y, { color: "#ff1744" });
-        this.boom("splat", a.x, a.y, { color: "#7e57c2" });
-      } else {
+      if (ri >= 0 && counts[ri] === this.callN) {
         this.boom("confetti", a.x, a.y, { color: "#69f0ae" });
+      } else {
+        doomed.push(a);
       }
+    }
+    // never wipe the whole field: if literally nobody formed a correct group,
+    // spare one so the round still leaves a survivor.
+    if (doomed.length === alive.length && doomed.length > 0) {
+      const spared = doomed.shift()!;
+      this.boom("confetti", spared.x, spared.y, { color: "#69f0ae" });
+    }
+    for (const a of doomed) {
+      const ri = this.roomOf(a);
+      a.alive = false;
+      a.anim = "dead";
+      const note = ri < 0 ? "Stuck on the platform!" : counts[ri] < this.callN ? "Too few!" : "Too many!";
+      this.elimOrder.push({ id: a.id, note });
+      this.boom("death", a.x, a.y, { color: "#ff1744" });
+      this.boom("splat", a.x, a.y, { color: "#7e57c2" });
     }
     this.lastEval.roomCounts = counts;
     this.phase = "flash";
@@ -180,6 +181,7 @@ export class Mingle extends ArenaGame {
         n: this.callN,
         round: this.round,
         timeLeft: Math.max(0, this.timer),
+        platform: { x: MINGLE_PLATFORM.x, y: MINGLE_PLATFORM.y, r: MINGLE_PLATFORM.r, spin: +this.spin.toFixed(3) },
         rooms: this.rooms.map((r, i) => ({
           x: r.x,
           y: r.y,

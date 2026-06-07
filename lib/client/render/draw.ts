@@ -1,6 +1,7 @@
 // Procedural drawing of the blob characters and themed arenas. No image
 // assets — everything here is canvas paths so the whole game ships as code.
 import { getCharacter, type Character, type BodyShape } from "../../shared/characters";
+import { equippedBySlot, type Accessory } from "../../shared/accessories";
 import type { GameMap } from "../../shared/maps";
 import { PLAYER_RADIUS } from "../../shared/constants";
 
@@ -19,6 +20,7 @@ export interface BlobOpts {
   variant?: number; // >0 = duplicate-icon disambiguation: draw an accent rim in MARKER_COLORS[variant-1]
   you?: boolean;
   alpha?: number;
+  accessories?: string[]; // equipped cosmetic ids (hat / eyewear / neckwear / ear), worn over the blob
 }
 
 // Accent colors for telling apart players who picked the same blob. Picked to be
@@ -174,6 +176,8 @@ export function drawBlob(
   const anim = opts.anim ?? "idle";
   const dead = anim === "dead";
   const phase = (t * 0.006 + x * 0.05) % (Math.PI * 2);
+  // Equipped cosmetics, resolved to ≤ one per slot. Hidden when boxed up (dead).
+  const acc = !dead && opts.accessories?.length ? equippedBySlot(opts.accessories) : null;
 
   ctx.save();
   if (opts.alpha != null) ctx.globalAlpha *= opts.alpha;
@@ -302,7 +306,20 @@ export function drawBlob(
     }
     ctx.globalAlpha = 1;
   }
+  // eyewear rides in the face transform so it tracks the eyes on every body shape
+  if (acc?.eyes) drawEyewear(ctx, acc.eyes, baseR);
   ctx.restore();
+
+  // worn accessories in body space: hat + ear-piece seat on the crown (topShift),
+  // neckwear hangs at the collar. Drawn over the blob, under the number bib.
+  if (acc && (acc.head || acc.ear)) {
+    ctx.save();
+    ctx.translate(0, topShift);
+    if (acc.ear) drawEarwear(ctx, acc.ear, baseR);
+    if (acc.head) drawHeadwear(ctx, acc.head, baseR);
+    ctx.restore();
+  }
+  if (acc?.neck) drawNeckwear(ctx, acc.neck, baseR);
 
   // Squid Game player-number bib on the chest
   if (opts.number && opts.number > 0 && !dead) {
@@ -718,6 +735,203 @@ function drawDeco(ctx: CanvasRenderingContext2D, ch: Character, r: number, t: nu
     }
     default:
       break;
+  }
+  ctx.restore();
+}
+
+// ---------------- worn accessories ----------------
+// Each routine draws ONE equipped cosmetic in the transform its slot expects:
+// eyewear in face space (caller), headgear/ear-piece in crown (topShift) space,
+// neckwear in plain body space. All sizes are multiples of the blob radius so
+// they scale with any blob, at any render size.
+
+// Eyewear — drawn in the face transform, aligned to the eyes (eyeY = -0.12r,
+// eyeDX = 0.32r, matching drawFace).
+function drawEyewear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
+  const eyeY = -r * 0.12;
+  const dx = r * 0.32;
+  ctx.save();
+  if (acc.kind === "shades") {
+    const lw = r * 0.38;
+    const lh = r * 0.32;
+    for (const s of [-1, 1]) {
+      roundRectPath(ctx, s * dx - lw / 2, eyeY - lh / 2, lw, lh, r * 0.1);
+      ctx.fillStyle = acc.c1;
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.28)";
+      roundRectPath(ctx, s * dx - lw / 2 + r * 0.05, eyeY - lh / 2 + r * 0.05, lw * 0.42, lh * 0.3, r * 0.05);
+      ctx.fill();
+    }
+    ctx.strokeStyle = acc.c1;
+    ctx.lineWidth = r * 0.07;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-dx + lw * 0.36, eyeY);
+    ctx.lineTo(dx - lw * 0.36, eyeY);
+    ctx.moveTo(-dx - lw / 2, eyeY);
+    ctx.lineTo(-dx - lw / 2 - r * 0.28, eyeY - r * 0.06);
+    ctx.moveTo(dx + lw / 2, eyeY);
+    ctx.lineTo(dx + lw / 2 + r * 0.28, eyeY - r * 0.06);
+    ctx.stroke();
+  } else {
+    // round wire glasses
+    const lens = r * 0.26;
+    ctx.lineWidth = r * 0.055;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = acc.c1;
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = "rgba(190,235,255,0.22)";
+      ctx.beginPath();
+      ctx.arc(s * dx, eyeY, lens, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(-dx + lens, eyeY);
+    ctx.lineTo(dx - lens, eyeY);
+    ctx.moveTo(-dx - lens, eyeY);
+    ctx.lineTo(-dx - lens - r * 0.3, eyeY - r * 0.06);
+    ctx.moveTo(dx + lens, eyeY);
+    ctx.lineTo(dx + lens + r * 0.3, eyeY - r * 0.06);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Headgear — drawn in crown (topShift) space; the crown sits around y = -r.
+function drawHeadwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
+  ctx.save();
+  ctx.lineJoin = "round";
+  if (acc.kind === "tophat") {
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.82, r * 0.86, r * 0.18, 0, 0, Math.PI * 2); // brim
+    ctx.fill();
+    ctx.fillRect(-r * 0.5, -r * 1.74, r * 1.0, r * 0.96); // cylinder
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 1.74, r * 0.5, r * 0.12, 0, 0, Math.PI * 2); // top
+    ctx.fill();
+    ctx.fillStyle = acc.c2 ?? "#c9a24a"; // band
+    ctx.fillRect(-r * 0.5, -r * 1.04, r * 1.0, r * 0.18);
+  } else if (acc.kind === "partyhat") {
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.5, -r * 0.82);
+    ctx.lineTo(0, -r * 1.92);
+    ctx.lineTo(r * 0.5, -r * 0.82);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save(); // stripes, clipped to the cone
+    ctx.clip();
+    ctx.strokeStyle = acc.c2 ?? "#fff";
+    ctx.lineWidth = r * 0.1;
+    for (const yy of [-r * 1.0, -r * 1.32, -r * 1.62]) {
+      ctx.beginPath();
+      ctx.moveTo(-r, yy);
+      ctx.lineTo(r, yy - r * 0.12);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.fillStyle = acc.c2 ?? "#fff"; // pom on the tip
+    ctx.beginPath();
+    ctx.arc(0, -r * 1.94, r * 0.13, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // beanie
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.82, -r * 0.78);
+    ctx.quadraticCurveTo(-r * 0.82, -r * 1.62, 0, -r * 1.62);
+    ctx.quadraticCurveTo(r * 0.82, -r * 1.62, r * 0.82, -r * 0.78);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = acc.c2 ?? "#fff";
+    roundRectPath(ctx, -r * 0.9, -r * 0.94, r * 1.8, r * 0.26, r * 0.12); // brim band
+    ctx.fill();
+    ctx.beginPath(); // pom
+    ctx.arc(0, -r * 1.64, r * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Neckwear — plain body space, hung at the collar (~ y = 0.42r).
+function drawNeckwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
+  ctx.save();
+  ctx.lineJoin = "round";
+  if (acc.kind === "bowtie") {
+    const by = r * 0.46;
+    ctx.fillStyle = acc.c1;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(0, by);
+      ctx.lineTo(s * r * 0.42, by - r * 0.2);
+      ctx.lineTo(s * r * 0.42, by + r * 0.2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = acc.c2 ?? acc.c1;
+    roundRectPath(ctx, -r * 0.1, by - r * 0.12, r * 0.2, r * 0.24, r * 0.05);
+    ctx.fill();
+  } else {
+    // bandana: a knot to one side with two tails, plus a kerchief over the chest
+    const ny = r * 0.42;
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.5, ny);
+    ctx.lineTo(-r * 0.68, ny + r * 0.34);
+    ctx.lineTo(-r * 0.4, ny + r * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.48, ny - r * 0.04);
+    ctx.lineTo(r * 0.48, ny - r * 0.04);
+    ctx.lineTo(0, ny + r * 0.52);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(-r * 0.5, ny, r * 0.12, 0, Math.PI * 2); // knot
+    ctx.fill();
+    ctx.fillStyle = acc.c2 ?? "#fff"; // polka dots
+    for (const [px, py] of [[-0.16, 0.1], [0.16, 0.08], [0, 0.3]]) {
+      ctx.beginPath();
+      ctx.arc(px * r, ny + py * r, r * 0.05, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// Ear-piece — drawn in crown (topShift) space, tucked at the side of the head.
+function drawEarwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
+  ctx.save();
+  ctx.translate(r * 0.62, -r * 0.46);
+  if (acc.kind === "feather") {
+    ctx.rotate(0.5);
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.3, r * 0.16, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = acc.c2 ?? "#fff";
+    ctx.lineWidth = r * 0.04;
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.72);
+    ctx.lineTo(0, r * 0.06);
+    ctx.stroke();
+  } else {
+    // flower
+    const pr = r * 0.18;
+    ctx.fillStyle = acc.c1;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(a) * pr, Math.sin(a) * pr, pr * 0.74, pr * 0.44, a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = acc.c2 ?? "#ffd54f";
+    ctx.beginPath();
+    ctx.arc(0, 0, pr * 0.5, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }

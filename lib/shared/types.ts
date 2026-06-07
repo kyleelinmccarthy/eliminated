@@ -40,11 +40,21 @@ export interface RoomConfig {
   nightMode: boolean;
 }
 
+// A wager an eliminated spectator has placed in the Dead Pool (hardcore only).
+// Public so the table can see who the vultures are backing; the bettor reads it
+// back to recover their own bet after a reconnect.
+export interface PublicBet {
+  targetId: string; // contender backed to win
+  stake: number; // marbles wagered (from series earnings)
+  oddsAlive: number; // field size when locked → payout multiplier
+}
+
 export interface PublicPlayer {
   id: string;
   name: string;
   number: number; // Squid Game-style player number (1..456), unique per room
   characterId: string;
+  accessories: string[]; // equipped cosmetic ids (≤ one per slot)
   ready: boolean;
   isBot: boolean;
   isHost: boolean;
@@ -54,6 +64,7 @@ export interface PublicPlayer {
   points: number; // running series score (casual ranking / tiebreaks)
   title?: string;
   emote?: { kind: string; at: number };
+  bet?: PublicBet; // Dead Pool wager, if this (eliminated) blob has placed one
 }
 
 export interface RoomMetaState {

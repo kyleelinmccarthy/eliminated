@@ -1,8 +1,11 @@
 // Keepy Uppy — every blob is handed one balloon in their own colors and a single
 // instruction: don't let it touch the floor and don't let it get popped. Walk
-// under your balloon and your body auto-bats it skyward; the catch is the air
-// keeps thickening (gravity + a wandering wind both ramp up), so a balloon left
-// alone drifts off and sinks. The twist on "keep it up *as a group*" is the SPIKE
+// under your balloon and your body auto-bats it skyward; the catch is it moves like
+// a *real* balloon — it never drops straight, it rocks side to side as it sinks
+// (the falling-leaf wobble), glides on the lightest draft, and kicks off at a slant
+// when you bat it, so it almost never lands where you're standing. The air also
+// keeps thickening (gravity, wind and sway all ramp up), so a balloon left alone
+// drifts off and sinks. The twist on "keep it up *as a group*" is the SPIKE
 // — a brief jab that bursts a RIVAL's balloon on contact (your own pin can't pop
 // your own balloon), so the real game is juggling yours while popping the
 // neighbors'. Balloon hits the floor or gets popped → its owner is eliminated. A
@@ -25,14 +28,22 @@ const BALLOON_R = 30;
 // rather than slamming the ceiling.
 const BAT_VY = 215; // upward speed imparted by a bat
 const BAT_PUSH = 80; // sideways shove along the contact normal
+const BAT_SCATTER = 95; // a light balloon never bounces cleanly — bats kick off at a slant
 const G0 = 175; // gravity accel at the start of the round
 const G1 = 540; // ...and by the buzzer (a fast fall punishes a mis-positioned juggler)
-const DRAG_Y = 1.7; // vertical air drag (per second) → terminal vy ≈ g / DRAG_Y
-const DRAG_X = 0.9; // horizontal air drag
+const DRAG_Y = 2.0; // vertical air drag (per second) → terminal vy ≈ g / DRAG_Y (floaty, real-balloon slow)
+const DRAG_X = 0.65; // low horizontal drag — a light balloon keeps gliding sideways once it's moving
 
 // a wandering wind that grows over the round and shoves balloons toward the walls
-const WIND0 = 24;
-const WIND1 = 150;
+const WIND0 = 28;
+const WIND1 = 185;
+
+// FLUTTER — the heart of the realistic feel. A real air-filled balloon doesn't fall
+// straight: it rocks side to side as it sinks (vortex shedding / falling-leaf sway),
+// the swing widening the faster it drops. The upshot is the balloon almost never
+// lands where a flat-footed juggler is standing, so you're forever re-positioning.
+const FLUTTER0 = 230; // peak sideways sway accel early in the round
+const FLUTTER1 = 540; // ...and by the buzzer (the swings get violent)
 
 const SPIKE_DUR = 0.32; // seconds the pin is "out" (contact pops instead of bats)
 const SPIKE_CD = 1.3; // cooldown between spikes
@@ -47,6 +58,8 @@ interface Balloon {
   vy: number;
   color: string;
   popped: boolean;
+  flutterPhase: number; // where it is in its side-to-side sway
+  flutterFreq: number; // each balloon wobbles at its own cadence (so the sky desyncs)
 }
 
 export class KeepyUppy extends ArenaGame {
@@ -58,7 +71,8 @@ export class KeepyUppy extends ArenaGame {
   private gravity = G0;
   private windX = 0;
   private windY = 0;
-  private turb = 40; // gust turbulence amplitude (ramps up — punishes laggy tracking)
+  private flutterAmp = FLUTTER0; // current sway strength (ramps up over the round)
+  private turb = 24; // residual white-noise gustiness on top of the structured sway
 
   constructor(ctx: GameContext) {
     super(ctx);
@@ -91,6 +105,8 @@ export class KeepyUppy extends ArenaGame {
         vy: 0,
         color: getCharacter(p.characterId).body,
         popped: false,
+        flutterPhase: this.ctx.rng() * Math.PI * 2,
+        flutterFreq: 2.0 + this.ctx.rng() * 1.7, // ~2–3.7 rad/s, unique per balloon
       });
     });
     this.ctx.toast("🎈 Keep YOUR balloon up — bump it to bat it, SPIKE to pop theirs!", "info");
@@ -133,11 +149,15 @@ export class KeepyUppy extends ArenaGame {
     this.gravity = (G0 + (G1 - G0) * p) * (0.85 + 0.3 * this.ctx.intensity);
     const windAmp = (WIND0 + (WIND1 - WIND0) * p) * (0.7 + 0.6 * this.ctx.intensity);
     // gusts speed up and bite harder as the round wears on; a frame-perfect juggler
-    // corrects within a tick, but anyone tracking a stale target gets left behind
-    this.windPhase += dt * (0.5 + 1.4 * p);
-    this.windX = Math.cos(this.windPhase) * windAmp;
-    this.windY = Math.sin(this.windPhase * 1.7) * windAmp * 0.25;
-    this.turb = (40 + 230 * p) * (0.7 + 0.6 * this.ctx.intensity);
+    // corrects within a tick, but anyone tracking a stale target gets left behind. A
+    // sharper secondary gust rides on top so the wind shoves in fits, not a smooth drift.
+    this.windPhase += dt * (0.6 + 1.6 * p);
+    const gust = 0.7 + 0.3 * Math.sin(this.windPhase * 3.3);
+    this.windX = Math.cos(this.windPhase) * windAmp * gust;
+    this.windY = Math.sin(this.windPhase * 1.7) * windAmp * 0.3;
+    // structured side-to-side sway widens over the round (see FLUTTER above)
+    this.flutterAmp = (FLUTTER0 + (FLUTTER1 - FLUTTER0) * p) * (0.8 + 0.4 * this.ctx.intensity);
+    this.turb = (24 + 120 * p) * (0.7 + 0.6 * this.ctx.intensity);
 
     this.powerups.tick(dt);
 
@@ -166,11 +186,16 @@ export class KeepyUppy extends ArenaGame {
   private updateBalloons(dt: number): void {
     for (const b of this.balloons.values()) {
       if (b.popped) continue;
-      // gravity + wind + per-balloon turbulence that ramps up over the round, so a
-      // settled balloon won't just hover forever — late on it skitters unpredictably
+      // gravity + wind pull/shove it; a little white-noise turbulence keeps the air gusty
       b.vy += this.gravity * dt + this.windY * dt + (this.ctx.rng() - 0.5) * this.turb * 0.25 * dt;
       b.vx += this.windX * dt + (this.ctx.rng() - 0.5) * this.turb * dt;
-      // air drag → floaty terminal velocity
+      // FLUTTER: the falling-leaf sway. The swing widens the faster the balloon sinks,
+      // so it carves a wandering S as it comes down instead of dropping onto a waiting
+      // blob. This is what makes a real balloon so maddening to stand under.
+      b.flutterPhase += b.flutterFreq * dt;
+      const sink = Math.max(0, b.vy);
+      b.vx += Math.sin(b.flutterPhase) * this.flutterAmp * (0.3 + 0.7 * Math.min(1, sink / 240)) * dt;
+      // air drag → floaty terminal velocity (low on x, so sideways glide persists)
       b.vy *= Math.max(0, 1 - DRAG_Y * dt);
       b.vx *= Math.max(0, 1 - DRAG_X * dt);
       b.vx = clamp(b.vx, -MAX_BSPEED, MAX_BSPEED);
@@ -216,10 +241,13 @@ export class KeepyUppy extends ArenaGame {
         // keep it on-screen (a blob hugging a wall/ceiling mustn't bat it off-edge)
         b.x = clamp(a.x + nx * (reach + 1), BALLOON_R, ARENA_W - BALLOON_R);
         b.y = clamp(a.y + ny * (reach + 1), BALLOON_R, ARENA_H - BALLOON_R - 1);
-        // always send it UP, push it along the contact normal, and lend it a bit
-        // of the blob's own momentum (so you can steer it as you run)
-        b.vy = -BAT_VY;
-        b.vx += nx * BAT_PUSH + a.vx * 0.25;
+        // send it UP, push it along the contact normal, and lend it a bit of the
+        // blob's own momentum (so you can steer it as you run) — but a light balloon
+        // never bounces cleanly: the lift varies and a sideways scatter kicks it off
+        // at a slant, restarting its tumble so you can't robotically chain bats in place.
+        b.vy = -BAT_VY * (0.82 + this.ctx.rng() * 0.36);
+        b.vx += nx * BAT_PUSH + a.vx * 0.3 + (this.ctx.rng() - 0.5) * BAT_SCATTER;
+        b.flutterPhase = this.ctx.rng() * Math.PI * 2;
         this.boom("poof", b.x, b.y + BALLOON_R, { color: b.color, scale: 0.6 });
       }
     }

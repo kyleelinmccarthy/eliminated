@@ -4,6 +4,7 @@ import { CHARACTERS } from "@/lib/shared/characters";
 import { CURRENCY_ICON } from "@/lib/shared/constants";
 import { BlobAvatar } from "./BlobAvatar";
 import { audio } from "@/lib/client/audio";
+import { buyCosmetic } from "@/lib/client/cosmetics";
 
 export function CharacterPicker({
   value,
@@ -17,26 +18,9 @@ export function CharacterPicker({
   const profile = useGame((s) => s.profile);
   const unlocked = new Set(profile?.unlocked ?? CHARACTERS.filter((c) => !c.unlock).map((c) => c.id));
 
-  async function tryUnlock(id: string, cost: number) {
-    const clientId = useGame.getState().clientId;
-    try {
-      const res = await fetch("/api/unlock", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ clientId, characterId: id, cost }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        audio.sfx("bad");
-        useGame.getState().set({ toasts: [...useGame.getState().toasts, { id: Date.now(), text: data.error, kind: "bad" }] });
-      } else {
-        audio.sfx("win");
-        useGame.setState({ profile: data });
-        onPick(id);
-      }
-    } catch {
-      /* ignore */
-    }
+  async function tryUnlock(id: string) {
+    // Buy via the shared helper; equip it the moment it's ours.
+    if (await buyCosmetic(id)) onPick(id);
   }
 
   const hasLocked = CHARACTERS.some((c) => c.unlock && !unlocked.has(c.id));
@@ -55,7 +39,7 @@ export function CharacterPicker({
               onClick={() => {
                 audio.sfx("blip");
                 if (isUnlocked) onPick(c.id);
-                else tryUnlock(c.id, c.unlock!);
+                else tryUnlock(c.id);
               }}
             >
               <div className="av">

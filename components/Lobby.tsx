@@ -9,6 +9,7 @@ import { formatPlayerNumber } from "@/lib/shared/util";
 import { characterVariants } from "@/lib/shared/characters";
 import { BlobAvatar } from "./BlobAvatar";
 import { CharacterPicker } from "./CharacterPicker";
+import { AccessoryPicker } from "./AccessoryPicker";
 import { Chat } from "./Chat";
 import { MuteButton } from "./MuteButton";
 
@@ -132,7 +133,7 @@ export function Lobby() {
                 )}
                 <span className="pnum" title="Player number">{formatPlayerNumber(p.number)}</span>
                 <div className="pcard-av">
-                  <BlobAvatar characterId={p.characterId} size={64} animate={p.ready} anim={p.ready ? "cheer" : "idle"} variant={variants.get(p.id) ?? 0} />
+                  <BlobAvatar characterId={p.characterId} size={64} animate={p.ready} anim={p.ready ? "cheer" : "idle"} variant={variants.get(p.id) ?? 0} accessories={p.accessories} />
                 </div>
                 <div className="pcard-name">
                   {p.isHost && <span title="Host">👑 </span>}
@@ -154,6 +155,11 @@ export function Lobby() {
           <div className="char-change">
             <label className="tag">Change your blob</label>
             <CharacterPicker value={characterId} onPick={(id) => net.setCharacter(id)} size={52} />
+          </div>
+
+          <div className="char-change">
+            <label className="tag">Dress your blob 💅</label>
+            <AccessoryPicker size={52} />
           </div>
 
           <div className="row wrap" style={{ gap: 6 }}>
