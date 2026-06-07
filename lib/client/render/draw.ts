@@ -343,7 +343,7 @@ export function drawBlob(
     if (acc.head) drawHeadwear(ctx, acc.head, baseR);
     ctx.restore();
   }
-  if (acc?.neck) drawNeckwear(ctx, acc.neck, baseR, cfg.feetY);
+  if (acc?.neck) drawNeckwear(ctx, acc.neck, baseR);
 
   // Squid Game player-number bib on the chest
   if (opts.number && opts.number > 0 && !dead) {
@@ -1068,56 +1068,56 @@ function drawHeadwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) 
   ctx.restore();
 }
 
-// Neckwear — seated low on the body, near the feet, NOT at the face. The blobs
-// are nearly all face and each shape parks that face at a wildly different height
-// (the default mouth lands anywhere from ~ -0.01r to ~0.52r in body space), so a
-// face-relative collar rode up onto the mouth on some shapes and up onto the
-// chest on others. Anchoring to feetY (each shape's bottom) drops the piece the
-// same amount on every silhouette and keeps it well clear of every mouth.
-function drawNeckwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number, feetY: number) {
+// Neckwear — seated near the BASE of the body, well below the face. The blobs
+// are nearly all face, and the one thing every silhouette shares is its bottom
+// edge (~1.05r for all shapes), so we anchor to that constant rather than to the
+// face (which sits at a wildly different height per shape — the mouth lands
+// anywhere from ~ -0.01r to ~0.52r) or to feetY (which tucks up to ~0.78r on the
+// round shapes and barely cleared the mouth). The pieces are kept narrow so they
+// stay inside the tapering shapes (cone/triangle) at this low position.
+function drawNeckwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
   ctx.save();
   ctx.lineJoin = "round";
   if (acc.kind === "bowtie") {
-    const by = (feetY - 0.16) * r; // just above the feet
+    const by = r * 0.82; // low on the belly, clear of every mouth, above the base
     ctx.fillStyle = acc.c1;
     for (const s of [-1, 1]) {
       ctx.beginPath();
       ctx.moveTo(0, by);
-      ctx.lineTo(s * r * 0.4, by - r * 0.15);
-      ctx.lineTo(s * r * 0.4, by + r * 0.15);
+      ctx.lineTo(s * r * 0.34, by - r * 0.14);
+      ctx.lineTo(s * r * 0.34, by + r * 0.14);
       ctx.closePath();
       ctx.fill();
     }
     ctx.fillStyle = acc.c2 ?? acc.c1;
-    roundRectPath(ctx, -r * 0.1, by - r * 0.1, r * 0.2, r * 0.2, r * 0.05);
+    roundRectPath(ctx, -r * 0.09, by - r * 0.09, r * 0.18, r * 0.18, r * 0.05);
     ctx.fill();
   } else {
     // bandana: knot at the low collar with two tails, the kerchief swept
     // diagonally toward the opposite hip rather than as a centred triangle (an
     // off-centre drape reads as a jaunty side-tie). The knot sits high enough
-    // above the feet that the kerchief point hangs down to the body's base
-    // without spilling off the bottom of even the lowest-bottomed shapes.
-    const ny = (feetY - 0.34) * r;
+    // above the base that the kerchief point still hangs down toward it.
+    const ny = r * 0.62;
     ctx.fillStyle = acc.c1;
     ctx.beginPath();
-    ctx.moveTo(-r * 0.5, ny);
-    ctx.lineTo(-r * 0.66, ny + r * 0.26);
-    ctx.lineTo(-r * 0.4, ny + r * 0.22);
+    ctx.moveTo(-r * 0.42, ny);
+    ctx.lineTo(-r * 0.56, ny + r * 0.24);
+    ctx.lineTo(-r * 0.34, ny + r * 0.2);
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(-r * 0.48, ny - r * 0.04);
-    ctx.lineTo(r * 0.46, ny - r * 0.04);
-    ctx.lineTo(r * 0.18, ny + r * 0.4); // point swept off-centre toward the hip
+    ctx.moveTo(-r * 0.4, ny - r * 0.04);
+    ctx.lineTo(r * 0.4, ny - r * 0.04);
+    ctx.lineTo(r * 0.16, ny + r * 0.36); // point swept off-centre toward the hip
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(-r * 0.5, ny, r * 0.12, 0, Math.PI * 2); // knot
+    ctx.arc(-r * 0.42, ny, r * 0.11, 0, Math.PI * 2); // knot
     ctx.fill();
     ctx.fillStyle = acc.c2 ?? "#fff"; // polka dots trailing the diagonal drape
-    for (const [px, py] of [[-0.16, 0.1], [0.02, 0.16], [0.14, 0.3]]) {
+    for (const [px, py] of [[-0.14, 0.08], [0.02, 0.14], [0.12, 0.26]]) {
       ctx.beginPath();
-      ctx.arc(px * r, ny + py * r, r * 0.05, 0, Math.PI * 2);
+      ctx.arc(px * r, ny + py * r, r * 0.045, 0, Math.PI * 2);
       ctx.fill();
     }
   }

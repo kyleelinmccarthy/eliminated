@@ -2,6 +2,7 @@ import type { Minigame, GameContext, MinigameResult } from "./Minigame";
 import { crownOne } from "./Minigame";
 import type { GameId, Snapshot, Effect } from "../../shared/types";
 import type { GameInput } from "../../shared/protocol";
+import { shuffle } from "../../shared/util";
 
 interface Jumper {
   id: string;
@@ -76,6 +77,18 @@ export class JumpRope implements Minigame {
     // with the round's length so a gentle opener is a quick hop across and the
     // finale is a real gauntlet.
     this.bridgeLen = Math.max(8, Math.round(this.maxSwings * 0.75));
+    // Stagger the pack so it crosses as a strung-out line instead of one clump
+    // moving in lockstep. Each jumper gets a small, luck-of-the-draw head start —
+    // a random starting plank, spread evenly across the near end of the bridge.
+    // The whole line still advances together each swing, but the leaders reach
+    // safety several swings ahead of the stragglers. Kept small (and capped) so
+    // the starting lane is mostly flavour, not a decisive advantage.
+    const spread = Math.max(2, Math.min(6, this.bridgeLen - 2, Math.round(this.bridgeLen * 0.3)));
+    const lineup = shuffle(this.ctx.rng, [...this.jumpers.values()]);
+    const denom = Math.max(1, lineup.length - 1);
+    lineup.forEach((j, i) => {
+      j.pos = Math.round((i / denom) * spread);
+    });
     this.ctx.toast("Jump the rope to cross the bridge. Get to the far side.", "info");
   }
 

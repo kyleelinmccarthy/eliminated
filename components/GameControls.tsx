@@ -896,22 +896,27 @@ function RollControls() {
     return () => cancelAnimationFrame(raf);
   }, [youId]);
 
-  // at a fork: the decisive LEFT / RIGHT gamble takes over the controls
+  // at a fork: a blocking, can't-miss popup takes over the screen. The backdrop
+  // also swallows canvas taps, so you genuinely can't roll until you've picked.
   if (choosing >= 0) {
     return (
-      <div className="roll">
-        <div className="forktitle">⚠ A CHUTE! Pick a side — one drops you to the START, the other to the ABYSS</div>
-        <div className="forkrow">
-          <button className={`forkbtn ${FORK_CLASS[fork.left]}`} onPointerDown={() => choose("L")}>
-            <span className="arrow">◀</span>
-            <span className="big">LEFT</span>
-            <span className="sub">{FORK_HINT[fork.left]}</span>
-          </button>
-          <button className={`forkbtn ${FORK_CLASS[fork.right]}`} onPointerDown={() => choose("R")}>
-            <span className="arrow">▶</span>
-            <span className="big">RIGHT</span>
-            <span className="sub">{FORK_HINT[fork.right]}</span>
-          </button>
+      <div className="forkpop">
+        <div className="forkcard">
+          <div className="forktitle">⚠ YOU HIT A CHUTE!</div>
+          <div className="forksub">Pick a side — one slides you back to the START, the other drops you into the ABYSS 💀</div>
+          <div className="forkrow">
+            <button className={`forkbtn ${FORK_CLASS[fork.left]}`} onPointerDown={() => choose("L")}>
+              <span className="arrow">◀</span>
+              <span className="big">LEFT</span>
+              <span className="sub">{FORK_HINT[fork.left]}</span>
+            </button>
+            <button className={`forkbtn ${FORK_CLASS[fork.right]}`} onPointerDown={() => choose("R")}>
+              <span className="arrow">▶</span>
+              <span className="big">RIGHT</span>
+              <span className="sub">{FORK_HINT[fork.right]}</span>
+            </button>
+          </div>
+          <div className="forkkeys">tap a side · or ← / A &nbsp;·&nbsp; → / D</div>
         </div>
         <ChuteStyles />
       </div>
@@ -1002,21 +1007,74 @@ function ChuteStyles() {
           transform: scale(1.04);
         }
       }
+      .forkpop {
+        position: absolute;
+        inset: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: rgba(8, 4, 18, 0.55);
+        backdrop-filter: blur(3px);
+        animation: forkFade 0.16s ease both;
+      }
+      .forkcard {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding: 22px 24px 24px;
+        border-radius: 26px;
+        background: radial-gradient(circle at 50% 0%, rgba(126, 63, 184, 0.6), rgba(20, 10, 32, 0.94));
+        border: 3px solid rgba(176, 107, 230, 0.75);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+        max-width: 94vw;
+        animation: forkPop 0.28s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+      }
       .forktitle {
         font-family: var(--font-display);
         font-weight: 800;
-        font-size: 0.95rem;
+        font-size: 1.5rem;
         color: var(--yellow);
-        background: rgba(0, 0, 0, 0.5);
-        padding: 6px 16px;
-        border-radius: 12px;
         text-align: center;
-        max-width: 92vw;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
         animation: rollPulse 1s ease-in-out infinite;
+      }
+      .forksub {
+        font-size: 0.92rem;
+        color: #fff;
+        opacity: 0.92;
+        text-align: center;
+        max-width: 320px;
+        line-height: 1.35;
+      }
+      .forkkeys {
+        font-size: 0.78rem;
+        color: var(--ink-dim);
+        letter-spacing: 0.02em;
       }
       .forkrow {
         display: flex;
-        gap: 28px;
+        gap: 22px;
+      }
+      @keyframes forkFade {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes forkPop {
+        0% {
+          transform: scale(0.8);
+          opacity: 0;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
       }
       .forkbtn {
         width: 150px;
