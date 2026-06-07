@@ -13,7 +13,9 @@ interface Jumper {
   lastJump: number;
   botLead: number; // seconds before ground to jump
   botSkill: number; // timing error stddev (sec)
-  survivedSwings: number;
+  pos: number; // planks crossed so far (0..bridgeLen)
+  crossed: boolean; // reached the far platform — safe, off the rope
+  crossedAt: number; // swing on which they made it across (for ranking)
 }
 
 const JUMP_DUR = 460; // ms airborne
@@ -22,7 +24,9 @@ const MIN_PERIOD = 0.62;
 const SPEEDUP = 0.945;
 const MAX_SWINGS = 30;
 
-// A giant rope sweeps the floor. Jump as it passes. It only gets faster.
+// A giant rope sweeps the deck of a bridge over a pit. Every clean jump carries
+// you one plank further across; mistime it and you're swept off into the dark.
+// Reach the far side and you're safe. The rope only gets faster.
 export class JumpRope implements Minigame {
   id: GameId = "jumprope";
   private ctx: GameContext;
@@ -36,6 +40,7 @@ export class JumpRope implements Minigame {
   private graceSwings = 1; // first pass is a freebie
   private maxSwings = MAX_SWINGS;
   private target = 1; // stop once this many remain
+  private bridgeLen = 12; // clean jumps needed to cross to safety
   private elimOrder: { id: string; note?: string }[] = [];
 
   constructor(ctx: GameContext) {
@@ -54,7 +59,9 @@ export class JumpRope implements Minigame {
         lastJump: 0,
         botLead: 0.2 + this.ctx.rng() * 0.06,
         botSkill: 0.02 + this.ctx.rng() * 0.07,
-        survivedSwings: 0,
+        pos: 0,
+        crossed: false,
+        crossedAt: 0,
       });
     }
     // gentler early in a series: fewer swings, an extra freebie, keep more alive.
@@ -64,7 +71,12 @@ export class JumpRope implements Minigame {
     this.target = this.ctx.forceSingleSurvivor ? 1 : Math.max(1, Math.ceil(n * (1 - 0.55 * this.ctx.intensity)));
     this.maxSwings = this.ctx.forceSingleSurvivor ? Math.max(28, n * 5) : Math.round(8 + this.ctx.intensity * 22);
     this.graceSwings = this.ctx.intensity < 0.4 ? 2 : 1;
-    this.ctx.toast("Jump on the beat. The rope is not negotiating.", "info");
+    // The bridge is short enough that the swift can reach safety before the rope
+    // tops out — but long enough the speed-up still claims the slow. It scales
+    // with the round's length so a gentle opener is a quick hop across and the
+    // finale is a real gauntlet.
+    this.bridgeLen = Math.max(8, Math.round(this.maxSwings * 0.75));
+    this.ctx.toast("Jump the rope to cross the bridge. Get to the far side.", "info");
   }
 
   onInput(playerId: string, input: GameInput): void {
@@ -74,7 +86,7 @@ export class JumpRope implements Minigame {
 
   private jump(id: string) {
     const j = this.jumpers.get(id);
-    if (!j || !j.alive) return;
+    if (!j || !j.alive || j.crossed) return;
     if (this.now < j.airborneUntil) return; // already airborne
     j.airborneUntil = this.now + JUMP_DUR;
     j.lastJump = this.now;
@@ -86,7 +98,7 @@ export class JumpRope implements Minigame {
 
     // bots
     for (const j of this.jumpers.values()) {
-      if (!j.alive || !j.isBot) continue;
+      if (!j.alive || j.crossed || !j.isBot) continue;
       if (this.now < j.airborneUntil) continue;
       const timeToGround = (1 - this.phase) * this.period;
       const target = j.botLead + (this.ctx.rng() - 0.5) * 2 * j.botSkill * (START_PERIOD / this.period);
@@ -106,21 +118,37 @@ export class JumpRope implements Minigame {
     this.swing++;
     this.period = Math.max(MIN_PERIOD, this.period * SPEEDUP);
     const free = this.swing <= this.graceSwings;
-    const alive = [...this.jumpers.values()].filter((j) => j.alive);
-    for (const j of alive) {
+    // only those still on the bridge are at the mercy of the rope
+    const onDeck = [...this.jumpers.values()].filter((j) => j.alive && !j.crossed);
+    for (const j of onDeck) {
       const airborne = this.now < j.airborneUntil;
-      if (!airborne && !free) {
+      if (airborne) {
+        // cleared it — one plank closer to the far side
+        j.pos += 1;
+        if (j.pos >= this.bridgeLen) {
+          j.crossed = true;
+          j.crossedAt = this.swing;
+          this.fx.push({ kind: "confetti", x: 0, y: 0, text: j.id });
+          this.fx.push({ kind: "spark", x: 0, y: 0, color: "#69f0ae", text: j.id });
+        }
+      } else if (!free) {
+        // caught flat-footed — swept off the bridge
         j.alive = false;
-        this.elimOrder.push({ id: j.id, note: `Tripped on swing ${this.swing}` });
+        this.elimOrder.push({ id: j.id, note: `Swept off the bridge on plank ${Math.floor(j.pos) + 1}` });
         this.fx.push({ kind: "death", x: 0, y: 0, color: "#ff1744", text: j.id });
         this.fx.push({ kind: "splat", x: 0, y: 0, color: "#ff7043", text: j.id });
-      } else {
-        j.survivedSwings = this.swing;
       }
+      // a flat-footed swing during the grace passes is a free stumble: no plank,
+      // no death.
     }
     this.fx.push({ kind: "shockwave", x: 0, y: 0, color: "#ffd54f" });
-    const remaining = [...this.jumpers.values()].filter((j) => j.alive);
-    if (remaining.length <= this.target || remaining.length <= 1 || this.swing >= this.maxSwings) this.done = true;
+    const aliveAll = [...this.jumpers.values()].filter((j) => j.alive);
+    const stillCrossing = aliveAll.filter((j) => !j.crossed);
+    // stop when the cull target is met, when everyone left has made it across, or
+    // at the buzzer.
+    if (aliveAll.length <= this.target || aliveAll.length <= 1 || stillCrossing.length === 0 || this.swing >= this.maxSwings) {
+      this.done = true;
+    }
   }
 
   snapshot(now: number): Snapshot {
@@ -133,12 +161,16 @@ export class JumpRope implements Minigame {
         phase: +this.phase.toFixed(3),
         period: +this.period.toFixed(3),
         swing: this.swing,
+        bridgeLen: this.bridgeLen,
+        grace: Math.max(0, this.graceSwings - this.swing),
         jumpers: [...this.jumpers.values()].map((j) => ({
           id: j.id,
           name: j.name,
           characterId: j.characterId,
           alive: j.alive,
           airborne: this.now < j.airborneUntil,
+          pos: j.pos,
+          crossed: j.crossed,
         })),
       },
       fx,
@@ -149,11 +181,12 @@ export class JumpRope implements Minigame {
     const j = this.jumpers.get(playerId);
     if (!j || !j.alive) return;
     j.alive = false;
-    this.elimOrder.push({ id: playerId, note: `Quit on swing ${this.swing + 1}` });
+    this.elimOrder.push({ id: playerId, note: `Bailed off the bridge on plank ${Math.floor(j.pos) + 1}` });
     this.fx.push({ kind: "death", x: 0, y: 0, color: "#ff1744", text: playerId });
     // ending early if a quit drops us to the survivor target
-    const remaining = [...this.jumpers.values()].filter((x) => x.alive);
-    if (remaining.length <= this.target || remaining.length <= 1) this.done = true;
+    const aliveAll = [...this.jumpers.values()].filter((x) => x.alive);
+    const stillCrossing = aliveAll.filter((x) => !x.crossed);
+    if (aliveAll.length <= this.target || aliveAll.length <= 1 || stillCrossing.length === 0) this.done = true;
   }
 
   isDone(): boolean {
@@ -161,12 +194,16 @@ export class JumpRope implements Minigame {
   }
 
   result(): MinigameResult {
-    // best-first by how long they lasted, so a buzzer with several still hopping
-    // crowns the most enduring jumper
+    // those who reached the far side rank first (earliest crossing best); anyone
+    // still on the bridge at the buzzer is ranked by how far they got.
     const survivors = [...this.jumpers.values()]
       .filter((j) => j.alive)
-      .sort((a, b) => b.survivedSwings - a.survivedSwings)
+      .sort((a, b) => {
+        if (a.crossed !== b.crossed) return a.crossed ? -1 : 1;
+        if (a.crossed && b.crossed) return a.crossedAt - b.crossedAt;
+        return b.pos - a.pos;
+      })
       .map((j) => j.id);
-    return crownOne(survivors, this.elimOrder, this.ctx.forceSingleSurvivor, "Still hopping at the buzzer");
+    return crownOne(survivors, this.elimOrder, this.ctx.forceSingleSurvivor, "Still on the bridge at the buzzer");
   }
 }

@@ -37,6 +37,7 @@ const OPENING_GRACE = 14;
 const R_SMALL = 56;
 const R_LARGE = 150;
 const FINAL_R = 32; // sudden-death floor — too small to hold a crowd
+const SINK_RATE = 45; // units/sec a sinking island's radius recedes (steady & linear, not eased)
 
 interface Island {
   id: number;
@@ -87,9 +88,10 @@ export class KingOfTheHill extends ArenaGame {
       const isl = this.spawnIsland(maxR);
       isl.r = maxR; // start fully risen
       isl.phase = "stable";
-      // hold at least through the opening grace (staggered) so the starting
-      // spread stays put while players learn to hop between islands
-      isl.timer = OPENING_GRACE + 2 + this.ctx.rng() * 8; // ~16–24s before the first sinks
+      // staggered holds so the opening spread STARTS CHANGING early (the first
+      // island sinks ~7s in) — a long static opening felt dead — while never all
+      // going at once. Sudden death is still gated by OPENING_GRACE further down.
+      isl.timer = 7 + this.ctx.rng() * 9; // ~7–16s, staggered, before each starting island sinks
     }
 
     const ps = this.ctx.players;
@@ -229,12 +231,18 @@ export class KingOfTheHill extends ArenaGame {
       }
     }
 
-    // ease every radius toward its target — sinking eases SLOWER so an island
-    // fades out gradually (it used to vanish too fast to react), then drop the
-    // fully-sunken ones.
+    // Rising/stable islands EASE toward their target; a SINKING island recedes at
+    // a steady LINEAR rate instead. Exponential easing was front-loaded — a big
+    // island lost most of its radius in the first half-second, so a blob couldn't
+    // cross to a neighbour before the ground vanished out from under it. A constant
+    // recede gives the same readable warning whether you're centred or at the edge,
+    // and bigger islands (where crowds gather) stay standable proportionally longer.
     for (const isl of this.islands) {
-      const speed = isl.phase === "sinking" ? 1.6 : 3;
-      isl.r += (isl.targetR - isl.r) * Math.min(1, dt * speed);
+      if (isl.phase === "sinking") {
+        isl.r = Math.max(0, isl.r - SINK_RATE * dt);
+      } else {
+        isl.r += (isl.targetR - isl.r) * Math.min(1, dt * 3);
+      }
     }
     this.islands = this.islands.filter((i) => i.final || !(i.phase === "sinking" && i.r < 3));
   }

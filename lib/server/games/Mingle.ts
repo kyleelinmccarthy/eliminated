@@ -1,6 +1,6 @@
 import { ArenaGame, type GameContext, type ArenaActor, type MinigameResult } from "./Minigame";
 import type { GameId, Snapshot } from "../../shared/types";
-import { ARENA_W, ARENA_H } from "../../shared/constants";
+import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { dist } from "../../shared/util";
 import { mingleRooms, MINGLE_PLATFORM, type MingleRoom } from "../../shared/mingle";
 
@@ -51,6 +51,23 @@ export class Mingle extends ArenaGame {
     });
   }
 
+  // Clamp a blob back inside the platform rim. Used every wander tick so the
+  // crowd is genuinely trapped on the spinning platform until the number is
+  // called — no edging toward the rooms while the music's still going.
+  private confineToPlatform(a: ArenaActor): void {
+    const maxR = MINGLE_PLATFORM.r - PLAYER_RADIUS * a.scale;
+    const dx = a.x - MINGLE_PLATFORM.x;
+    const dy = a.y - MINGLE_PLATFORM.y;
+    const d = Math.hypot(dx, dy);
+    if (d > maxR) {
+      const m = d || 1;
+      a.x = MINGLE_PLATFORM.x + (dx / m) * maxR;
+      a.y = MINGLE_PLATFORM.y + (dy / m) * maxR;
+      a.vx = 0;
+      a.vy = 0;
+    }
+  }
+
   private aliveActors() {
     return [...this.actors.values()].filter((a) => a.alive);
   }
@@ -81,6 +98,10 @@ export class Mingle extends ArenaGame {
       if (!a.alive) continue;
       if (a.isBot) this.botThink(a);
       this.moveActor(a, dt);
+      // While the music's still playing nobody may leave the platform — you can
+      // shuffle around on it, but you can't creep out and pre-camp a room before
+      // the number actually drops. The instant it does (mingle), this lifts.
+      if (this.phase === "wander") this.confineToPlatform(a);
     }
 
     if (this.phase === "wander") {
@@ -100,7 +121,9 @@ export class Mingle extends ArenaGame {
     this.callN = choices.length ? choices[Math.floor(this.ctx.rng() * choices.length)] : 2;
     this.phase = "mingle";
     this.timer = Math.max(4.5, 7 - this.round * 0.5);
-    this.ctx.toast(`MINGLE! Groups of ${this.callN} — odd ones out get got!`, "info");
+    // No toast here on purpose: a top-of-screen toast lands right on top of the
+    // big "GROUP OF N" banner and buries the number players need to read. The
+    // banner + alarm sting + ring boom are announcement enough.
     this.boom("ring", ARENA_W / 2, ARENA_H / 2, { color: "#ffd54f", scale: 3 });
   }
 

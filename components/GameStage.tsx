@@ -14,6 +14,7 @@ import { IntroOverlay } from "./overlays/IntroOverlay";
 import { RoundResultOverlay } from "./overlays/RoundResultOverlay";
 import { SeriesResultOverlay } from "./overlays/SeriesResultOverlay";
 import { GameControls } from "./GameControls";
+import { GameIcon } from "./GameIcon";
 import { MuteButton } from "./MuteButton";
 import { FeedbackButton } from "./FeedbackButton";
 import { DeadPool } from "./DeadPool";
@@ -332,7 +333,7 @@ function PlayingView() {
       <div className="hud-top">
         <LeaveGameButton />
         <div className="hud-pill">
-          <span style={{ fontSize: "1.3rem" }}>{gameMeta?.icon}</span>
+          {hud.game && <GameIcon id={hud.game} style={{ fontSize: "1.3rem" }} />}
           <div className="col" style={{ gap: 0 }}>
             <strong className="title-font" style={{ lineHeight: 1 }}>{gameMeta?.name}</strong>
             <span className="tiny dim">{roundLabel} · {map.name}</span>
@@ -423,7 +424,7 @@ function SpectatorChat({ number }: { number?: number }) {
       title={`💀 Player ${formatPlayerNumber(number)} eliminated — heckle from the great beyond…`}
       collapsedLabel="Heckle"
       accent="var(--red)"
-      side="left"
+      side="right"
       defaultOpen
     />
   );

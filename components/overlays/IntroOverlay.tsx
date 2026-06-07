@@ -4,6 +4,7 @@ import { useGame } from "@/lib/client/net";
 import { audio } from "@/lib/client/audio";
 import { GAMES } from "@/lib/shared/games";
 import { getMap } from "@/lib/shared/maps";
+import { GameIcon } from "../GameIcon";
 
 export function IntroOverlay() {
   const room = useGame((s) => s.room)!;
@@ -51,7 +52,7 @@ export function IntroOverlay() {
         {intro.isFinale ? "🏁 FINAL GAME" : `GAME ${intro.roundNumber}`}
       </div>
       {intro.night && <div className="night-badge">🌙 Night Round — good luck seeing it coming</div>}
-      <div className="icon floaty">{g.icon}</div>
+      <GameIcon id={intro.game} className="icon floaty" />
       <h1 className="gname shadowtext">{g.name}</h1>
       <p className="tagline">{g.tagline}</p>
       <div className="rules card">{g.rules}</div>

@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { GamePreview } from "@/components/GamePreview";
-import { GAMES, ALL_GAME_IDS } from "@/lib/shared/games";
+import { HowToGames } from "@/components/HowToGames";
+import { ALL_GAME_IDS } from "@/lib/shared/games";
 import { MAPS } from "@/lib/shared/maps";
 import { CURRENCY, CURRENCY_ICON } from "@/lib/shared/constants";
 import { POWERUPS, ALL_POWERUPS } from "@/lib/shared/powerups";
@@ -93,24 +93,10 @@ export default function HowToPlay() {
 
         <div className="panel htp-section">
           <h3>🕹️ The Games ({ALL_GAME_IDS.length})</h3>
-          <div className="htp-games">
-            {ALL_GAME_IDS.map((id) => {
-              const g = GAMES[id];
-              return (
-                <div key={id} className="card htp-game">
-                  <div className="row" style={{ gap: 10 }}>
-                    <span style={{ fontSize: "2rem" }}>{g.icon}</span>
-                    <strong style={{ fontFamily: "var(--font-game)", fontSize: "1rem", letterSpacing: 0 }}>{g.name}</strong>
-                  </div>
-                  <GamePreview gameId={id} />
-                  <p className="tiny" style={{ margin: "6px 0" }}>{g.rules}</p>
-                  <p className="tiny dim" style={{ margin: 0 }}>
-                    🎮 {g.controlText}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+          <p className="dim tiny" style={{ marginTop: -4, marginBottom: 12 }}>
+            Tap any game to read its rules and exact controls — the previews are live bot matches, not videos.
+          </p>
+          <HowToGames />
         </div>
 
         <div className="panel htp-section">

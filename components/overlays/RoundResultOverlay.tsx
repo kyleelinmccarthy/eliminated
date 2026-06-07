@@ -7,6 +7,7 @@ import { CURRENCY_ICON } from "@/lib/shared/constants";
 import { formatPlayerNumber } from "@/lib/shared/util";
 import { characterVariants } from "@/lib/shared/characters";
 import { BlobAvatar } from "../BlobAvatar";
+import { GameIcon } from "../GameIcon";
 
 export function RoundResultOverlay() {
   const room = useGame((s) => s.room)!;
@@ -27,7 +28,7 @@ export function RoundResultOverlay() {
   return (
     <div className="rr">
       <div className="rr-head">
-        <span style={{ fontSize: "2rem" }}>{g.icon}</span>
+        <GameIcon id={result.game} style={{ fontSize: "2rem" }} />
         <h2><span className="title-font">{g.name}</span> — The Reckoning</h2>
       </div>
       <div className="rr-list scroll">

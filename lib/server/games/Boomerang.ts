@@ -2,6 +2,7 @@ import { ArenaGame, crownOne, type GameContext, type ArenaActor, type MinigameRe
 import type { GameId, Snapshot } from "../../shared/types";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { dist, clamp } from "../../shared/util";
+import { getCharacter } from "../../shared/characters";
 import type { GameInput } from "../../shared/protocol";
 
 type Power = "speed" | "bigrang" | "multishot" | "shield" | "tiny" | "magnet";
@@ -469,6 +470,8 @@ export class Boomerang extends ArenaGame {
           spin: +r.spin.toFixed(2),
           big: r.hitR > BASE_HIT_R * 1.5,
           owner: r.owner,
+          // tint each rang to its thrower's blob so you can tell whose is whose
+          color: getCharacter(this.actors.get(r.owner)?.characterId ?? "").body,
         })),
         pickups: this.pickups.map((p) => ({ id: p.id, kind: p.kind, x: p.x, y: p.y, bob: +p.bob.toFixed(2) })),
       },

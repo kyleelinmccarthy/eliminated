@@ -92,6 +92,32 @@ console.log("Mingle — everyone starts on the spinning platform");
   check(ok, "all players begin within the central platform");
 }
 
+// --- 2b) you can't leave the platform until the number is called
+console.log("Mingle — trapped on the platform until the number drops");
+{
+  const g: any = new Mingle(mkCtx(players(2, 2), 41));
+  g.start();
+  const me = [...g.actors.values()][0] as { id: string; x: number; y: number };
+  // shove straight up at the top room and hold it through the whole wander phase
+  let escapedDuringWander = false;
+  let steps = 0;
+  while (g.phase === "wander" && steps < 300) {
+    g.onInput(me.id, { kind: "move", dx: 0, dy: -1 });
+    g.tick(DT, steps * DT);
+    if (dist(me.x, me.y, MINGLE_PLATFORM.x, MINGLE_PLATFORM.y) > MINGLE_PLATFORM.r + 1) escapedDuringWander = true;
+    steps++;
+  }
+  check(!escapedDuringWander, "shoving toward a room never escapes the platform while the music plays");
+  // once the number's called the leash comes off — they can run clear of it
+  let escapedAfter = false;
+  for (let i = 0; i < 300 && g.phase === "mingle"; i++) {
+    g.onInput(me.id, { kind: "move", dx: 0, dy: -1 });
+    g.tick(DT, (steps + i) * DT);
+    if (dist(me.x, me.y, MINGLE_PLATFORM.x, MINGLE_PLATFORM.y) > MINGLE_PLATFORM.r + 1) { escapedAfter = true; break; }
+  }
+  check(escapedAfter, "once the number is called they can finally leave the platform");
+}
+
 // --- 3) wrong-sized groups are eliminated (too few AND too many)
 console.log("Mingle — wrong group sizes get eliminated");
 {

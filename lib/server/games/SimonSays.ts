@@ -24,7 +24,10 @@ interface Contestant {
 
 type Command = { key: string; label: string; emoji: string; freeze: boolean };
 
-const READY_START = 0.95; // anticipation "Simon says…" beat (shrinks each round)
+// Fallback timing defaults — the real start/min/speedup are recomputed per round
+// from series intensity in start() (see below). Early rounds open roomy and ease
+// into the speed-up; later rounds start tighter and accelerate harder.
+const READY_START = 0.95; // anticipation "Simon says…" beat (shrinks each beat)
 const READY_MIN = 0.5;
 const WINDOW_START = 1.7; // reaction window while the order is shown
 const WINDOW_MIN = 0.62;
@@ -41,6 +44,12 @@ export class SimonSays implements Minigame {
   private contestants = new Map<string, Contestant>();
   private phase: "ready" | "call" | "judge" = "ready";
   private phaseTime = 0;
+  // per-round timing envelope (set in start() from series intensity)
+  private readyStart = READY_START;
+  private readyMin = READY_MIN;
+  private windowStart = WINDOW_START;
+  private windowMin = WINDOW_MIN;
+  private speedup = SPEEDUP;
   private readyCur = READY_START;
   private windowCur = WINDOW_START;
   private beat = 0;
@@ -79,11 +88,24 @@ export class SimonSays implements Minigame {
       });
     }
     const n = this.ctx.players.length;
+    const r = clamp01(this.ctx.intensity); // ~0.12 gentle opener → ~0.9 finale
     // As the decisive finale, whittle all the way to one, and give it enough
     // beats to actually get there.
     this.target = this.ctx.forceSingleSurvivor ? 1 : Math.max(1, Math.ceil(n * (1 - 0.55 * this.ctx.intensity)));
-    this.maxBeats = this.ctx.forceSingleSurvivor ? Math.max(24, n * 4) : Math.round(10 + this.ctx.intensity * 18);
-    this.freezeChance = 0.22 + 0.12 * this.ctx.intensity;
+    // Length scales with the field (more blobs need more orders to thin out) and
+    // how late we are in the series (later rounds run longer + harsher).
+    this.maxBeats = this.ctx.forceSingleSurvivor
+      ? Math.max(24, n * 4)
+      : Math.round(8 + n * 0.6 + r * 12);
+    this.freezeChance = 0.22 + 0.12 * r;
+    // Timing envelope: the FIRST order is always generous, then the screws turn
+    // each beat (see beginBeat). Later rounds open tighter, bottom out lower, and
+    // accelerate faster so the difficulty climbs across the series.
+    this.windowStart = 2.2 - 0.55 * r; // ~2.2s opener → ~1.7s late
+    this.windowMin = 0.8 - 0.2 * r; // floor ~0.8s early → ~0.6s late
+    this.readyStart = 1.1 - 0.25 * r;
+    this.readyMin = 0.55 - 0.12 * r;
+    this.speedup = 0.93 - 0.04 * r; // shrinks faster the later we are
     this.ctx.toast("Simon says: obey instantly. Or else.", "info");
     this.beginBeat();
   }
@@ -91,8 +113,8 @@ export class SimonSays implements Minigame {
   // ---- beat lifecycle ----
   private beginBeat(): void {
     this.beat++;
-    this.readyCur = Math.max(READY_MIN, READY_START * Math.pow(SPEEDUP, this.beat - 1));
-    this.windowCur = Math.max(WINDOW_MIN, WINDOW_START * Math.pow(SPEEDUP, this.beat - 1));
+    this.readyCur = Math.max(this.readyMin, this.readyStart * Math.pow(this.speedup, this.beat - 1));
+    this.windowCur = Math.max(this.windowMin, this.windowStart * Math.pow(this.speedup, this.beat - 1));
     this.command = this.chooseCommand();
     for (const c of this.contestants.values()) {
       c.did = null;
@@ -131,7 +153,7 @@ export class SimonSays implements Minigame {
   // Decide, the instant the order is revealed, what each bot will do and when.
   private planBots(): void {
     // panic 0 (roomy window) → 1 (window at its tightest)
-    const panic = clamp01((WINDOW_START - this.windowCur) / (WINDOW_START - WINDOW_MIN));
+    const panic = clamp01((this.windowStart - this.windowCur) / (this.windowStart - this.windowMin));
     for (const c of this.contestants.values()) {
       if (!c.alive || !c.isBot) continue;
       const delay = c.reaction * (0.8 + this.ctx.rng() * 0.5);

@@ -11,6 +11,7 @@ import { CharacterPicker } from "./CharacterPicker";
 import { AccessoryPicker } from "./AccessoryPicker";
 import { BlobAvatar } from "./BlobAvatar";
 import { GamePreview } from "./GamePreview";
+import { GameIcon } from "./GameIcon";
 import { MuteButton } from "./MuteButton";
 import { FeedbackButton } from "./FeedbackButton";
 
@@ -27,6 +28,7 @@ type Floater = { key: string; id: string; left: number; top: number; size: numbe
 export function Landing() {
   const name = useGame((s) => s.name);
   const characterId = useGame((s) => s.characterId);
+  const accessories = useGame((s) => s.accessories);
   const profile = useGame((s) => s.profile);
   const status = useGame((s) => s.status);
   const [localName, setLocalName] = useState(name);
@@ -160,7 +162,7 @@ export function Landing() {
                 <label className="tag">Your blob</label>
                 <div className="row" style={{ gap: 14 }}>
                   <div className="card" style={{ padding: 10 }}>
-                    <BlobAvatar characterId={characterId} size={96} animate anim="idle" />
+                    <BlobAvatar characterId={characterId} size={96} animate anim="idle" accessories={accessories} />
                   </div>
                   <div className="col" style={{ gap: 8, flex: 1 }}>
                     <label className="tag">Name</label>
@@ -267,7 +269,7 @@ export function Landing() {
             return (
               <div key={id} className="card htp-game rise">
                 <div className="row" style={{ gap: 10 }}>
-                  <span style={{ fontSize: "2rem" }}>{g.icon}</span>
+                  <GameIcon id={id} style={{ fontSize: "2rem" }} />
                   <strong className="game-name">{g.name}</strong>
                 </div>
                 <GamePreview gameId={id} />

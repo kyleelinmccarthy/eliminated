@@ -6,10 +6,11 @@ import { GAMES, ALL_GAME_IDS } from "@/lib/shared/games";
 import type { GameId, SeriesMode } from "@/lib/shared/types";
 import { CURRENCY, CURRENCY_ICON, MIN_TO_START } from "@/lib/shared/constants";
 import { formatPlayerNumber } from "@/lib/shared/util";
-import { characterVariants } from "@/lib/shared/characters";
+import { characterVariants, CHARACTERS } from "@/lib/shared/characters";
 import { BlobAvatar } from "./BlobAvatar";
 import { CharacterPicker } from "./CharacterPicker";
 import { AccessoryPicker } from "./AccessoryPicker";
+import { GameIcon } from "./GameIcon";
 import { ChatDock } from "./ChatDock";
 import { MuteButton } from "./MuteButton";
 
@@ -64,6 +65,7 @@ export function Lobby() {
   const youId = useGame((s) => s.youId);
   const characterId = useGame((s) => s.characterId);
   const [copied, setCopied] = useState(false);
+  const [charOpen, setCharOpen] = useState(false);
 
   const isHost = youId === room.hostId;
   const me = room.players.find((p) => p.id === youId);
@@ -72,6 +74,7 @@ export function Lobby() {
   const canStart = room.players.length >= MIN_TO_START || room.config.botFill;
   // accent rims so two players on the same blob aren't a confusing pair
   const variants = characterVariants(room.players);
+  const currentChar = CHARACTERS.find((c) => c.id === characterId);
 
   function patch(p: any) {
     audio.sfx("click");
@@ -164,8 +167,23 @@ export function Lobby() {
           </div>
 
           <div className="char-change">
-            <label className="tag">Change your blob</label>
-            <CharacterPicker value={characterId} onPick={(id) => net.setCharacter(id)} size={52} />
+            <button
+              className="collapse-head"
+              onClick={() => (audio.sfx("blip"), setCharOpen((o) => !o))}
+              aria-expanded={charOpen}
+            >
+              <span className="tag">Change your blob</span>
+              {!charOpen && (
+                <span className="collapse-current">
+                  <BlobAvatar characterId={characterId} size={26} accessories={me?.accessories} />
+                  {currentChar?.name}
+                </span>
+              )}
+              <span className={`chev ${charOpen ? "open" : ""}`}>▾</span>
+            </button>
+            {charOpen && (
+              <CharacterPicker value={characterId} onPick={(id) => net.setCharacter(id)} size={52} />
+            )}
           </div>
 
           <div className="char-change">
@@ -239,7 +257,7 @@ export function Lobby() {
               <div className="game-chips">
                 {ALL_GAME_IDS.map((id) => (
                   <button key={id} className={`chip ${gameIsOn(id) ? "on" : ""}`} disabled={!isHost} onClick={() => toggleGame(id)} title={GAMES[id].tagline}>
-                    {GAMES[id].icon} {GAMES[id].name}
+                    <GameIcon id={id} /> {GAMES[id].name}
                   </button>
                 ))}
               </div>
@@ -499,6 +517,36 @@ export function Lobby() {
           display: flex;
           flex-direction: column;
           gap: 4px;
+        }
+        .collapse-head {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          background: none;
+          border: none;
+          padding: 2px 0;
+          color: var(--ink);
+          cursor: pointer;
+          text-align: left;
+        }
+        .collapse-current {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: 0.82rem;
+          color: var(--ink-dim);
+        }
+        .chev {
+          margin-left: auto;
+          font-size: 0.9rem;
+          color: var(--ink-dim);
+          transition: transform 0.15s ease;
+        }
+        .chev.open {
+          transform: rotate(180deg);
         }
         .reactions {
           display: flex;

@@ -343,7 +343,7 @@ export function drawBlob(
     if (acc.head) drawHeadwear(ctx, acc.head, baseR);
     ctx.restore();
   }
-  if (acc?.neck) drawNeckwear(ctx, acc.neck, baseR);
+  if (acc?.neck) drawNeckwear(ctx, acc.neck, baseR, cfg.faceY, cfg.faceScale);
 
   // Squid Game player-number bib on the chest
   if (opts.number && opts.number > 0 && !dead) {
@@ -1068,49 +1068,63 @@ function drawHeadwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) 
   ctx.restore();
 }
 
-// Neckwear — plain body space, hung at the collar (~ y = 0.42r).
-function drawNeckwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
+// Neckwear — hangs at the collar, just below the chin. The blobs are nearly all
+// face, and each body shape seats that face at a different height (faceY /
+// faceScale), so a fixed body-space y sat dead over the mouth on the rounder,
+// low-faced shapes (the default mouth lands anywhere from ~ -0.01r to ~0.52r in
+// body space). Anchor the collar to the shape's face — the default mouth sits at
+// ~0.34r into the face transform — so the piece clears it on every silhouette.
+function drawNeckwear(
+  ctx: CanvasRenderingContext2D,
+  acc: Accessory,
+  r: number,
+  faceY: number,
+  faceScale: number,
+) {
   ctx.save();
   ctx.lineJoin = "round";
   if (acc.kind === "bowtie") {
-    const by = r * 0.46;
+    // Centre dropped below the mouth; the bow's upper lobes reach 0.16r up, so
+    // 0.58 keeps even those clear of the chin without crowding the feet.
+    const by = (faceY + faceScale * 0.58) * r;
     ctx.fillStyle = acc.c1;
     for (const s of [-1, 1]) {
       ctx.beginPath();
       ctx.moveTo(0, by);
-      ctx.lineTo(s * r * 0.42, by - r * 0.2);
-      ctx.lineTo(s * r * 0.42, by + r * 0.2);
+      ctx.lineTo(s * r * 0.42, by - r * 0.16);
+      ctx.lineTo(s * r * 0.42, by + r * 0.16);
       ctx.closePath();
       ctx.fill();
     }
     ctx.fillStyle = acc.c2 ?? acc.c1;
-    roundRectPath(ctx, -r * 0.1, by - r * 0.12, r * 0.2, r * 0.24, r * 0.05);
+    roundRectPath(ctx, -r * 0.1, by - r * 0.1, r * 0.2, r * 0.2, r * 0.05);
     ctx.fill();
   } else {
     // bandana: knotted at the left collar with two tails, the kerchief swept
     // diagonally toward the opposite hip rather than as a centred triangle. A
     // centred point landed dead under the chin and read as sitting on the face
-    // of squat, low-faced shapes (bulb/pear/mushroom, mouth ~0.5r); the off-centre
-    // drape clears the facial midline and reads as a jaunty side-tie.
-    const ny = r * 0.44;
+    // of squat, low-faced shapes; the off-centre drape clears the facial midline
+    // and reads as a jaunty side-tie. The drape is kept short enough that the
+    // tail stays on the body once the collar is pushed down on low-faced shapes.
+    const ny = (faceY + faceScale * 0.5) * r;
     ctx.fillStyle = acc.c1;
     ctx.beginPath();
     ctx.moveTo(-r * 0.5, ny);
-    ctx.lineTo(-r * 0.68, ny + r * 0.34);
-    ctx.lineTo(-r * 0.4, ny + r * 0.3);
+    ctx.lineTo(-r * 0.68, ny + r * 0.3);
+    ctx.lineTo(-r * 0.4, ny + r * 0.26);
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
     ctx.moveTo(-r * 0.48, ny - r * 0.04);
     ctx.lineTo(r * 0.46, ny - r * 0.04);
-    ctx.lineTo(r * 0.2, ny + r * 0.5); // point swept off-centre toward the hip
+    ctx.lineTo(r * 0.2, ny + r * 0.42); // point swept off-centre toward the hip
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
     ctx.arc(-r * 0.5, ny, r * 0.12, 0, Math.PI * 2); // knot
     ctx.fill();
     ctx.fillStyle = acc.c2 ?? "#fff"; // polka dots trailing the diagonal drape
-    for (const [px, py] of [[-0.16, 0.12], [0.04, 0.16], [0.18, 0.36]]) {
+    for (const [px, py] of [[-0.16, 0.1], [0.04, 0.14], [0.16, 0.3]]) {
       ctx.beginPath();
       ctx.arc(px * r, ny + py * r, r * 0.05, 0, Math.PI * 2);
       ctx.fill();

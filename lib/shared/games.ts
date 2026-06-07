@@ -152,20 +152,20 @@ export const GAMES: Record<GameId, GameMeta> = {
   jumprope: {
     id: "jumprope",
     name: "Killer Jump Rope",
-    tagline: "Jump in rhythm. The rope is patient. You are not.",
+    tagline: "Skip your way across the bridge. The rope is patient. You are not.",
     icon: "🤸",
-    rules: "A giant rope sweeps the floor. JUMP at the right moment. Mistime it and you're swept away. It only gets faster. It never gets kinder.",
+    rules: "A giant rope sweeps the deck of a bridge over a long drop. Every clean JUMP carries you one plank further across. Mistime it and you're swept off the edge. Reach the far side and you're safe — but the rope only gets faster.",
     controls: ["tap"],
-    controlText: "Press SPACE / click / tap to JUMP as the rope passes.",
+    controlText: "Press SPACE / click / tap to JUMP the rope and cross the bridge.",
     lengthHint: "~40s",
     minPlayers: 1,
     arena: "rope",
     cull: "mid",
-    finaleCapable: true, // last jumper on the beat
+    finaleCapable: true, // first across the bridge
     flavors: [
-      "Skip, skip, skip… faceplant.",
-      "The rope never gets tired. It also never gets a raise. Relatable.",
-      "Light on your feet, or laid out flat.",
+      "Skip, skip, skip… into the abyss.",
+      "It's not the rope that kills you. It's the plank you never reach.",
+      "Cross the bridge, or become a cautionary tale at the bottom of it.",
     ],
   },
   boomerang: {
@@ -323,8 +323,8 @@ export const GAMES: Record<GameId, GameMeta> = {
     tagline: "The floor is lava. The islands are sinking. The crown is petty.",
     icon: "🌋",
     rules: "THE FINALE. The floor is lava and the islands sink into it one by one. Hop between them to stay off the floor, grab powerups, and shove rivals into the magma. The islands run out — last blob not-on-fire is CHAMPION.",
-    controls: ["move"],
-    controlText: "Move with WASD / Arrows or drag. Hop between the sinking islands — RAM rivals to shove them into the lava!",
+    controls: ["move", "aim"],
+    controlText: "Move with WASD / Arrows or drag to hop between the sinking islands. Aim with the mouse, then CLICK / SPACE to SHOVE a rival off into the lava.",
     lengthHint: "~1 min",
     // The series culls down to a 1v1 for the finale, so it must run with 2.
     minPlayers: 2,

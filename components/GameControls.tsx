@@ -993,7 +993,6 @@ function ChuteStyles() {
 }
 
 // ---------------- RPS minus one ----------------
-const THROW_LABEL: Record<string, string> = { R: "✊ Rock", P: "✋ Paper", S: "✌️ Scissors" };
 const THROW_ICON: Record<string, string> = { R: "✊", P: "✋", S: "✌️" };
 const THROW_WORD: Record<string, string> = { R: "Rock", P: "Paper", S: "Scissors" };
 function RpsControls() {
@@ -1081,7 +1080,16 @@ function RpsControls() {
               </div>
             </>
           )}
-          {picks.length > 0 && <div className="rps-picks">You: {picks.map((p) => THROW_LABEL[p].split(" ")[0]).join("  ")}</div>}
+          {picks.length > 0 && (
+            <div className="rps-picks">
+              You:{" "}
+              {picks.map((p, i) => (
+                <span key={i} className="rps-ico" style={{ fontSize: "1.1rem", margin: "0 4px" }}>
+                  {THROW_ICON[p]}
+                </span>
+              ))}
+            </div>
+          )}
         </>
       )}
       {phase === "drop" && (

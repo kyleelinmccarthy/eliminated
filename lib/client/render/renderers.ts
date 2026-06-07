@@ -151,7 +151,7 @@ function renderArena(
 
     // --- boomerangs ---
     if (cur.game === "boomerang" && d.rangs) {
-      for (const r of d.rangs) drawRang(ctx, r.x, r.y, r.spin, r.big);
+      for (const r of d.rangs) drawRang(ctx, r.x, r.y, r.spin, r.big, r.color, r.owner === rc.youId);
     }
     // --- dodgeballs (over the blobs) ---
     if (cur.game === "dodgeball" && d.balls) {
@@ -563,13 +563,34 @@ function drawPickups(ctx: CanvasRenderingContext2D, d: any, t: number) {
   ctx.textBaseline = "alphabetic";
 }
 
-function drawRang(ctx: CanvasRenderingContext2D, x: number, y: number, spin: number, big: boolean) {
+function drawRang(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  spin: number,
+  big: boolean,
+  color?: string,
+  mine?: boolean,
+) {
+  // tinted to the thrower's blob so you can tell whose boomerang is whose
+  // (falls back to the old wooden brown if the snapshot predates color-coding)
+  const body = color || "#8d5524";
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(spin);
   const r = big ? 26 : 17;
-  ctx.fillStyle = "#8d5524";
-  ctx.strokeStyle = "#5d3a13";
+  // a white outline marks your own rang so it pops out of the volley
+  if (mine) {
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, Math.PI * 0.15, Math.PI * 1.15);
+    ctx.arc(0, 0, r * 0.55, Math.PI * 1.15, Math.PI * 0.15, true);
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.fillStyle = body;
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.arc(0, 0, r, Math.PI * 0.15, Math.PI * 1.15);
@@ -577,9 +598,9 @@ function drawRang(ctx: CanvasRenderingContext2D, x: number, y: number, spin: num
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // motion blur arc
+  // motion blur arc, tinted to the owner so the streak reads as theirs too
   ctx.globalAlpha = 0.3;
-  ctx.strokeStyle = "#ffd54f";
+  ctx.strokeStyle = body;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(0, 0, r + 6, 0, Math.PI * 1.6);
@@ -1187,65 +1208,146 @@ function drawHands(ctx: CanvasRenderingContext2D, cx: number, cy: number, throws
   const spread = shown.length > 1 ? 60 : 0;
   shown.forEach((th, i) => {
     const x = cx + (i - (shown.length - 1) / 2) * spread;
+    // Tip each hand onto its side (90° clockwise, never upside-down) so the
+    // canvas throw mirrors a real RPS toss — same as the control buttons.
+    ctx.save();
     ctx.font = "44px serif";
     ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
     ctx.globalAlpha = 1;
-    ctx.fillText(HAND[th] || "?", x, cy);
+    ctx.translate(x, cy);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillText(HAND[th] || "?", 0, 0);
+    ctx.restore();
   });
   ctx.globalAlpha = 1;
 }
 
-// =================== JUMP ROPE ===================
+// =================== JUMP ROPE (cross the bridge) ===================
+// A rope sweeps the deck of a bridge over a chasm. Each clean jump carries you
+// one plank further across; reach the far platform and you're safe. Your spot on
+// the bridge IS your progress bar — plus an explicit "plank X / N" readout up top
+// so you always know how far you've got left to go.
 function renderJump(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Snapshot, rc: RenderCtx) {
   const d = cur.data || {};
+  const bridgeLen: number = Math.max(1, d.bridgeLen || 12);
+
+  // ---- sky + chasm ----
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "#3a1a52");
+  g.addColorStop(0.55, "#1a1030");
   g.addColorStop(1, "#08110f");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  const groundY = H * 0.72;
-  ctx.fillStyle = "rgba(255,255,255,0.06)";
-  ctx.fillRect(0, groundY, W, H - groundY);
-  ctx.strokeStyle = "rgba(255,255,255,0.2)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, groundY);
-  ctx.lineTo(W, groundY);
-  ctx.stroke();
+  const deckY = H * 0.66; // top surface of the bridge planks
+  // the pit below, with a faint glow at the bottom so falling reads as fatal
+  const pit = ctx.createLinearGradient(0, deckY, 0, H);
+  pit.addColorStop(0, "rgba(0,0,0,0.0)");
+  pit.addColorStop(0.5, "rgba(0,0,0,0.45)");
+  pit.addColorStop(1, "rgba(120,20,40,0.5)");
+  ctx.fillStyle = pit;
+  ctx.fillRect(0, deckY, W, H - deckY);
 
-  // turners (hands) at sides
-  const phase = d.phase || 0; // 0..1
-  // rope is at ground when phase ~ 0; arcs over top at phase 0.5
-  const ropeY = groundY - Math.sin(phase * Math.PI) * (H * 0.55);
-  const atGround = phase < 0.1 || phase > 0.9;
+  // bridge geometry: start platform on the left, finish/safe platform on the right
+  const startX = Math.round(W * 0.12);
+  const finishX = Math.round(W * 0.86);
+  const span = finishX - startX;
+  const posToX = (p: number) => startX + (Math.max(0, Math.min(bridgeLen, p)) / bridgeLen) * span;
+
+  // ---- the bridge deck (planks + rope rails) ----
+  const plankCount = Math.min(bridgeLen, 40);
+  const deckH = 14;
+  ctx.save();
+  for (let i = 0; i < plankCount; i++) {
+    const x0 = startX + (i / plankCount) * span;
+    const x1 = startX + ((i + 1) / plankCount) * span;
+    ctx.fillStyle = i % 2 === 0 ? "#5b3b22" : "#6b4729";
+    ctx.fillRect(x0, deckY, x1 - x0 - 1.5, deckH);
+  }
+  // plank edge shadow
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(startX, deckY + deckH, span, 4);
+  // rope rails along the sides of the deck
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(startX, deckY - 26);
+  ctx.lineTo(finishX, deckY - 26);
+  ctx.stroke();
+  ctx.restore();
+
+  // start + safe platforms
+  ctx.fillStyle = "#2b3a4a";
+  ctx.fillRect(0, deckY - 4, startX, deckH + 12);
+  const safeGrad = ctx.createLinearGradient(finishX, 0, W, 0);
+  safeGrad.addColorStop(0, "#1f5e3a");
+  safeGrad.addColorStop(1, "#2e7d4f");
+  ctx.fillStyle = safeGrad;
+  ctx.fillRect(finishX, deckY - 4, W - finishX, deckH + 12);
+  // finish line + flag
+  ctx.strokeStyle = "#69f0ae";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(finishX, deckY - 70);
+  ctx.lineTo(finishX, deckY + deckH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = "30px serif";
+  ctx.textAlign = "center";
+  ctx.fillText("🏁", finishX, deckY - 74);
+  ctx.fillStyle = "#9affc9";
+  ctx.font = "800 14px 'Baloo 2', sans-serif";
+  ctx.fillText("SAFE", (finishX + W) / 2, deckY - 28);
+
+  // ---- the rope ----
+  const phase = d.phase || 0; // 0..1; at the deck when phase ~ 0/1, overhead at 0.5
+  const ropeY = deckY - Math.sin(phase * Math.PI) * (H * 0.5);
+  const atGround = phase < 0.12 || phase > 0.88;
   ctx.strokeStyle = atGround ? "#ff5252" : "#ffd54f";
   ctx.lineWidth = 6;
   ctx.beginPath();
-  ctx.moveTo(60, groundY - 10);
-  ctx.quadraticCurveTo(W / 2, ropeY - (groundY - ropeY) * 0.4, W - 60, groundY - 10);
+  ctx.moveTo(40, deckY - 8);
+  ctx.quadraticCurveTo(W / 2, ropeY - (deckY - ropeY) * 0.35, W - 40, deckY - 8);
   ctx.stroke();
-  // turner hands
+  // turners cranking the rope at each bank
   ctx.font = "40px serif";
   ctx.textAlign = "center";
-  ctx.fillText("🤚", 50, groundY - 6);
-  ctx.fillText("🤚", W - 50, groundY - 6);
+  ctx.fillText("🤚", 26, deckY - 4);
+  ctx.fillText("🤚", W - 26, deckY - 4);
 
-  // jumpers in a row
+  // ---- jumpers, placed along the bridge by how far they've crossed ----
   const jumpers = d.jumpers || [];
   const n = jumpers.length;
-  jumpers.forEach((j: any, i: number) => {
-    const x = W / 2 + (i - (n - 1) / 2) * Math.min(90, (W - 220) / Math.max(1, n));
+  const r = Math.max(15, Math.min(26, 320 / Math.max(6, n)));
+  let crossedCount = 0;
+  let me: any = null;
+  jumpers.forEach((j: any) => {
+    if (j.crossed) crossedCount++;
+    if (j.id === rc.youId) me = j;
+    // small deterministic scatter so a clump on the same plank doesn't fully stack
+    const seed = hashStr(j.id);
+    const jx = ((seed % 7) - 3) * 4;
+    const jy = ((seed >> 3) % 5) * 5;
+    let x: number;
+    if (j.crossed) {
+      // cheering on the safe platform, fanned out across it
+      x = finishX + 22 + ((seed % 5) / 5) * (W - finishX - 44);
+    } else {
+      x = posToX(j.pos) + jx;
+    }
     if (!j.alive) {
-      drawCoffin(ctx, x, groundY - 30, 26 / PLAYER_RADIUS, rc.time, coffinAge(rc, j.id));
+      // swept off — the coffin drops into the chasm at their last plank
+      drawCoffin(ctx, posToX(j.pos) + jx, deckY + 4, r / PLAYER_RADIUS, rc.time, coffinAge(rc, j.id));
       return;
     }
-    const lift = j.airborne ? Math.sin(Math.min(1, 1) * Math.PI) * 60 : 0;
-    const y = groundY - 30 - lift - (j.airborne ? 20 : 0);
+    const lift = j.airborne ? 56 : 0;
+    const y = deckY - r - jy * 0.4 - lift;
     drawBlob(ctx, j.characterId, x, y, {
-      r: 26,
+      r,
       time: rc.time,
-      anim: j.airborne ? "cheer" : "idle",
+      anim: j.crossed ? "cheer" : j.airborne ? "cheer" : "idle",
       name: j.name,
       number: rc.numbers?.get(j.id),
       variant: rc.variants?.get(j.id), accessories: rc.accessories?.get(j.id),
@@ -1253,21 +1355,64 @@ function renderJump(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sn
     });
   });
 
-  // beat indicator
-  const timeToGround = ((1 - phase) * (d.period || 1));
-  ctx.font = "800 22px 'Baloo 2', sans-serif";
-  ctx.fillStyle = atGround ? "#ff5252" : "#69f0ae";
+  // timing aid: a ring that closes in on the local jumper as the rope nears the
+  // deck, so you can feel the beat where your eyes already are.
+  if (me && me.alive && !me.crossed) {
+    const timeToGround = (1 - phase) * (d.period || 1);
+    const mx = posToX(me.pos) + ((hashStr(me.id) % 7) - 3) * 4;
+    const ring = r + 8 + timeToGround * 80;
+    ctx.strokeStyle = atGround ? "rgba(255,82,82,0.9)" : `rgba(255,213,79,${Math.max(0.15, 1 - timeToGround)})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(mx, deckY - r, ring, 0, Math.PI * 2);
+    ctx.stroke();
+    if (atGround) {
+      ctx.fillStyle = "#ff5252";
+      ctx.font = "800 20px 'Baloo 2', sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("JUMP!", mx, deckY - r * 2 - 22);
+    }
+  }
+
+  // ---- top overlay: goal + your plank progress + how many are across ----
   ctx.textAlign = "center";
-  ctx.fillText(`Swing ${d.swing || 0}`, W / 2, 50);
-  // approaching ring
-  const r = 30 + timeToGround * 120;
-  ctx.strokeStyle = `rgba(255,213,79,${Math.max(0, 1 - timeToGround)})`;
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.arc(W / 2, 90, r, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.fillStyle = "#ffd54f";
+  ctx.font = "800 22px 'Baloo 2', sans-serif";
+  ctx.fillText("🌉 Cross the bridge", W / 2, 40);
+
+  // your progress bar — the explicit "how far have I got to go" readout
+  const myPos = me ? Math.min(bridgeLen, Math.round(me.pos)) : 0;
+  const myFrac = me ? Math.max(0, Math.min(1, me.pos / bridgeLen)) : 0;
+  const barW = Math.min(420, W * 0.5);
+  const barX = (W - barW) / 2;
+  const barY = 56;
+  ctx.fillStyle = "rgba(255,255,255,0.14)";
+  roundRect(ctx, barX, barY, barW, 16, 8);
+  ctx.fill();
+  ctx.fillStyle = me?.crossed ? "#69f0ae" : myFrac > 0.66 ? "#9ccc65" : "#ffd54f";
+  roundRect(ctx, barX, barY, Math.max(6, barW * myFrac), 16, 8);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "800 13px 'Baloo 2', sans-serif";
+  ctx.fillText(me?.crossed ? "ACROSS — SAFE!" : `Plank ${myPos} / ${bridgeLen}`, W / 2, barY + 13);
+
+  if (crossedCount > 0) {
+    ctx.fillStyle = "#9affc9";
+    ctx.font = "800 14px 'Baloo 2', sans-serif";
+    ctx.fillText(`🏁 ${crossedCount} across`, W / 2, barY + 36);
+  }
 
   rc.fx.draw(ctx);
+}
+
+// tiny stable string hash for deterministic per-jumper scatter
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
 // =================== SIMON SAYS (obey the order, or freeze) ===================
@@ -1296,7 +1441,7 @@ function renderSimon(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
   ctx.textAlign = "center";
   ctx.fillStyle = "#b9a7d6";
   ctx.font = "800 18px 'Baloo 2', sans-serif";
-  ctx.fillText(`Order ${d.beat || 1}`, W / 2, 40);
+  ctx.fillText(d.maxBeats ? `Order ${d.beat || 1} / ${d.maxBeats}` : `Order ${d.beat || 1}`, W / 2, 40);
 
   if (phase === "ready" || !cmd) {
     const pulse = 0.6 + 0.4 * Math.sin(t * 0.012);
@@ -1657,6 +1802,28 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
 
     // last-rolled die face, floating beside the pawn
     if (c.die > 0) drawDie(ctx, x + pawnR * 1.2, y - pawnR * 1.2, Math.max(14, pawnR * 0.9), c.die);
+
+    // YOUR roll cue: a bobbing prompt under your own pawn so it's always obvious
+    // you advance by tapping (click anywhere · SPACE · the ROLL button). It blinks
+    // off for the instant your die face is up, so every tap reads as a reaction.
+    if (c.id === rc.youId && !c.finished && c.choosing < 0 && c.die === 0) {
+      const bob = Math.sin(rc.time * 0.006) * 3;
+      const fs = Math.max(11, pawnR * 0.6);
+      const label = "🎲 TAP TO ROLL";
+      ctx.save();
+      ctx.font = `800 ${Math.round(fs)}px 'Baloo 2', sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const w = ctx.measureText(label).width + fs * 1.2;
+      const h = fs * 1.55;
+      const cy = y + pawnR * 1.9 + bob;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      roundRect(ctx, x - w / 2, cy - h / 2, w, h, h / 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffd54f";
+      ctx.fillText(label, x, cy);
+      ctx.restore();
+    }
 
     // fork prompt sits above everything so it's never missed
     if (c.choosing >= 0) {

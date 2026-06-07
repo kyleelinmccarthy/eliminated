@@ -118,7 +118,7 @@ export function DeadPool() {
         .deadpool {
           position: absolute;
           bottom: 12px;
-          right: 12px;
+          left: 12px;
           width: min(380px, 92vw);
           background: rgba(8, 4, 14, 0.82);
           border: 2px solid var(--red);
