@@ -26,7 +26,7 @@ const BALLOON_R = 30;
 // vertical: a bat lifts the balloon up to -BAT_VY; gravity (ramping) + drag pull
 // it back down toward a slow terminal velocity, so it floats in a catchable band
 // rather than slamming the ceiling.
-const BAT_VY = 215; // upward speed imparted by a bat
+const BAT_VY = 300; // upward speed imparted by a bat (a firm bump lofts it well up, not a limp tap)
 const BAT_PUSH = 80; // sideways shove along the contact normal
 const BAT_SCATTER = 95; // a light balloon never bounces cleanly — bats kick off at a slant
 const G0 = 175; // gravity accel at the start of the round

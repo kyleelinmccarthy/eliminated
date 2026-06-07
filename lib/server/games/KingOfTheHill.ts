@@ -13,6 +13,12 @@ import { PowerupField } from "./Powerups";
 
 const TIME_CAP = 60;
 const BURN_GRACE = 0.95; // seconds standing in lava before you burn out
+// Opening grace: for the first stretch of the round the starting islands hold
+// firm and sudden death CAN'T begin — so players get a real chance to hop from
+// island to island and read the board before anything starts shrinking. Without
+// this the finale (often a 1v1) tripped the `alive <= 2` sudden-death trigger on
+// the very first tick and collapsed straight to one closing-in island.
+const OPENING_GRACE = 14;
 
 // island sizing (arena units)
 const R_SMALL = 56;
@@ -67,7 +73,9 @@ export class KingOfTheHill extends ArenaGame {
       const isl = this.spawnIsland(maxR);
       isl.r = maxR; // start fully risen
       isl.phase = "stable";
-      isl.timer = 7 + this.ctx.rng() * 7; // linger a good while before sinking
+      // hold at least through the opening grace (staggered) so the starting
+      // spread stays put while players learn to hop between islands
+      isl.timer = OPENING_GRACE + 2 + this.ctx.rng() * 8; // ~16–24s before the first sinks
     }
 
     const ps = this.ctx.players;
@@ -132,7 +140,9 @@ export class KingOfTheHill extends ArenaGame {
 
     // Late in the round (or once the field has thinned) collapse to a single
     // shrinking last-stand island so the game ends decisively — classic KotH.
-    if (!this.suddenDeath && (t >= TIME_CAP * 0.72 || this.aliveActors().length <= 2)) {
+    // The opening grace gates BOTH triggers: a small finale field shouldn't drop
+    // into sudden death until everyone's had a fair shot at hopping around first.
+    if (!this.suddenDeath && t >= OPENING_GRACE && (t >= TIME_CAP * 0.72 || this.aliveActors().length <= 2)) {
       this.enterSuddenDeath();
     }
 

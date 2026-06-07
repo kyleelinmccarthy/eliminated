@@ -4,6 +4,11 @@ import { ARENA_W, ARENA_H } from "../../shared/constants";
 import { dist } from "../../shared/util";
 import { mingleRooms, MINGLE_PLATFORM, type MingleRoom } from "../../shared/mingle";
 
+// How long the platform spins and the music plays before a number is called —
+// long enough to actually hear the music, watch the carousel turn, and regroup
+// on the platform between rounds.
+const WANDER_TIME = 4.5;
+
 export class Mingle extends ArenaGame {
   id: GameId = "mingle";
   private rooms: MingleRoom[] = [];
@@ -23,13 +28,27 @@ export class Mingle extends ArenaGame {
     this.rooms = mingleRooms();
     // everyone STARTS on the spinning platform (music's playing), packed into a
     // tidy ring inside it so nobody spills out over a room.
-    ps.forEach((p, i) => {
-      const ang = (i / ps.length) * Math.PI * 2;
-      const rad = MINGLE_PLATFORM.r * 0.6;
-      this.addActor(p, MINGLE_PLATFORM.x + Math.cos(ang) * rad, MINGLE_PLATFORM.y + Math.sin(ang) * rad);
-    });
+    ps.forEach((p, i) => this.addActor(p, MINGLE_PLATFORM.x, MINGLE_PLATFORM.y));
+    this.gatherOnPlatform();
     this.phase = "wander";
-    this.timer = 2.5;
+    this.timer = WANDER_TIME;
+  }
+
+  // Pack every still-alive blob back onto the central platform in a tidy ring.
+  // Called at the start of each music phase so every round resets to "everyone
+  // mingling on the spinning platform" before the next number is called.
+  private gatherOnPlatform(): void {
+    const alive = this.aliveActors();
+    alive.forEach((a, i) => {
+      const ang = (i / Math.max(1, alive.length)) * Math.PI * 2;
+      const rad = MINGLE_PLATFORM.r * 0.6;
+      a.x = MINGLE_PLATFORM.x + Math.cos(ang) * rad;
+      a.y = MINGLE_PLATFORM.y + Math.sin(ang) * rad;
+      a.inDx = 0;
+      a.inDy = 0;
+      a.vx = 0;
+      a.vy = 0;
+    });
   }
 
   private aliveActors() {
@@ -127,8 +146,11 @@ export class Mingle extends ArenaGame {
     if (alive <= target || this.round >= maxRounds || alive <= 2) {
       this.done = true;
     } else {
+      // reset everyone back onto the platform — the music starts up again and the
+      // whole "mingle on the spinning platform, then scatter" beat repeats.
+      this.gatherOnPlatform();
       this.phase = "wander";
-      this.timer = 2.5;
+      this.timer = WANDER_TIME;
     }
   }
 

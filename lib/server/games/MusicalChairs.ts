@@ -20,7 +20,8 @@ interface Chair {
 const CHAIR_R = 46;
 const CHAIR_GAP = 96; // min spacing between scattered chairs (no stacking)
 const CHAIR_MARGIN = 150; // keep chairs this far from the walls
-const STILL_GRACE = 1.0; // seconds you can stand still in the music before you're out
+const STILL_GRACE = 1.4; // seconds you can stand still in the music before you're out
+const STILL_WARN = 0.5; // once still this long, you get a visible "MOVE!" warning + countdown
 const STILL_SPEED = 40; // intended speed below this counts as "standing still"
 const FAKE_SHOW = 0.45; // how long a fake-out "STOP!" is displayed
 
@@ -80,7 +81,7 @@ export class MusicalChairs extends ArenaGame {
     this.timer = 3.5 + this.ctx.rng() * 2.5;
     this.fakeT = 0;
     this.fakeCd = 1.1 + this.ctx.rng() * 1.0; // first bait can't fire instantly
-    this.ctx.toast("🎵 Music's on — keep dancing! Chairs drop the instant it STOPS.", "info");
+    this.ctx.toast("🎵 Music's on — KEEP MOVING! Freeze up and the floor takes you. Chairs only drop when it STOPS.", "info");
   }
 
   // Scatter chairs across the floor (with min spacing) instead of a tidy ring, so
@@ -182,6 +183,8 @@ export class MusicalChairs extends ArenaGame {
 
   // "Keep moving" rule: stand still through the music and the floor claims you.
   // Bots wander, so this only ever bites a human who stops (or freezes on a bait).
+  // You get STILL_WARN seconds of leeway, then a loud on-screen "MOVE!" countdown
+  // for the rest of the grace — so nobody's eliminated without a clear heads-up.
   private keepMoving(a: ArenaActor, dt: number): void {
     const moving = Math.hypot(a.vx, a.vy) > STILL_SPEED;
     a.data!.stillT = moving ? 0 : (a.data!.stillT ?? 0) + dt;
@@ -193,7 +196,7 @@ export class MusicalChairs extends ArenaGame {
       this.elimOrder.push({ id: a.id, note: "Stopped dancing!" });
       this.boom("death", a.x, a.y, { color: "#ff1744" });
       this.boom("splat", a.x, a.y, { color: "#ab47bc" });
-    } else if (t > STILL_GRACE * 0.4) {
+    } else if (t >= STILL_WARN) {
       a.flash = 1; // pulse a warning before the floor takes them
     }
   }
@@ -300,6 +303,15 @@ export class MusicalChairs extends ArenaGame {
   }
 
   snapshot(now: number): Snapshot {
+    // Players who've stood still long enough to earn a "MOVE!" warning, with the
+    // seconds left before the floor claims them — the client renders a per-blob
+    // countdown (and a loud banner when it's you) so the rule is unmistakable.
+    const warn =
+      this.phase === "music"
+        ? this.aliveActors()
+            .filter((a) => (a.data!.stillT ?? 0) >= STILL_WARN)
+            .map((a) => ({ id: a.id, left: +Math.max(0, STILL_GRACE - (a.data!.stillT ?? 0)).toFixed(1) }))
+        : [];
     return {
       game: this.id,
       t: now,
@@ -311,6 +323,7 @@ export class MusicalChairs extends ArenaGame {
         chairs: this.chairs.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y), claimed: !!c.by })),
         night: this.ctx.night,
         fake: this.phase === "music" && this.fakeT > 0,
+        warn,
         pickups: this.phase === "music" ? this.powerups.snapshot() : [],
       },
       fx: this.drainFx(),

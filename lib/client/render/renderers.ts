@@ -162,9 +162,17 @@ function renderArena(
     }
   }
 
+  // musical chairs: a "MOVE!" countdown over anyone who's stopped dancing (and a
+  // loud banner when it's you) so nobody's eliminated without a clear heads-up
+  if (cur.game === "musicalchairs") drawChairsWarn(ctx, d, actors, rc);
+
   // freeze tag: a constant role banner so it's obvious to EVERYONE who freezes
   // and who runs (the per-player hint coaches you; this reminds the whole table)
   if (cur.game === "tag") drawTagBanner(ctx, d);
+
+  // mingle: the called number printed BIG at the top of the arena, well clear of
+  // the platform (where the crowd of blobs would otherwise bury it)
+  if (cur.game === "mingle") drawMingleBanner(ctx, d, rc.time);
 
   // fx in arena space
   rc.fx.draw(ctx);
@@ -424,13 +432,63 @@ function drawMingleGround(ctx: CanvasRenderingContext2D, d: any, t: number) {
     ctx.fill();
     ctx.stroke();
     if (active) {
+      // count badge on the room's LOWER rim — keeps the top room's number clear
+      // of the big "GROUP OF N" banner across the top of the arena
       ctx.font = "800 34px 'Baloo 2', sans-serif";
       ctx.fillStyle = r.ok ? "#69f0ae" : "#fff";
       ctx.textAlign = "center";
-      ctx.fillText(`${r.count}`, r.x, r.y - r.r + 36);
+      ctx.fillText(`${r.count}`, r.x, r.y + r.r - 12);
     }
     ctx.restore();
   }
+}
+
+// Mingle banner — the called group size, shown HUGE across the top of the arena
+// so it's readable even while the whole crowd is still piled on the platform
+// (the platform's own centre number gets buried under blobs). While the music
+// plays (wander) it just teases that a number's coming.
+function drawMingleBanner(ctx: CanvasRenderingContext2D, d: any, t: number) {
+  const called = (d.phase === "mingle" || d.phase === "flash") && d.n;
+  const cx = ARENA_W / 2;
+  const yMid = 46; // a strip across the very top — well above the platform
+  ctx.save();
+  ctx.textBaseline = "middle";
+  if (called) {
+    const pulse = 0.92 + 0.08 * Math.sin(t * 0.012);
+    const label = "GROUP OF ";
+    const num = String(d.n);
+    ctx.font = "800 30px 'Baloo 2', sans-serif";
+    const labelW = ctx.measureText(label).width;
+    ctx.font = `900 ${Math.round(58 * pulse)}px 'Baloo 2', sans-serif`;
+    const numW = ctx.measureText(num).width;
+    const total = labelW + numW;
+    const left = cx - total / 2;
+    // backing panel so it reads over any map / room beneath it
+    ctx.fillStyle = "rgba(8,4,18,0.66)";
+    ctx.strokeStyle = "rgba(255,213,79,0.9)";
+    ctx.lineWidth = 4;
+    roundRect(ctx, left - 26, yMid - 36, total + 52, 72, 18);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ffd54f";
+    ctx.font = "800 30px 'Baloo 2', sans-serif";
+    ctx.fillText(label, left, yMid);
+    ctx.fillStyle = "#fff";
+    ctx.shadowColor = "rgba(255,46,90,0.6)";
+    ctx.shadowBlur = 18;
+    ctx.font = `900 ${Math.round(58 * pulse)}px 'Baloo 2', sans-serif`;
+    ctx.fillText(num, left + labelW, yMid);
+  } else {
+    // music's playing — the platform spins, everyone mingles, no number yet
+    ctx.textAlign = "center";
+    ctx.globalAlpha = 0.6 + 0.25 * Math.sin(t * 0.006);
+    ctx.fillStyle = "#ffd54f";
+    ctx.font = "800 34px 'Baloo 2', sans-serif";
+    ctx.fillText("🎵 Mingle! Wait for the number…", cx, yMid);
+  }
+  ctx.restore();
+  ctx.textBaseline = "alphabetic";
 }
 
 // Freeze Tag role banner — a fixed two-tone strip at the top of the arena so
@@ -873,6 +931,11 @@ const tug = { loseAt: 0, loser: -1 };
 function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Snapshot, rc: RenderCtx) {
   const d = cur.data || {};
 
+  // Pre-round "3·2·1·GO" hold: the server freezes all pulling until startAt, so
+  // until then NOBODY (bots included) is allowed to heave — render them braced
+  // and waiting, not mid-pull, so it never looks like the bots got a head start.
+  const frozen = cur.startAt != null && Date.now() < cur.startAt;
+
   // ropePos > 0 → team 0 (left) is winning; < 0 → team 1 (right) is winning.
   const ropePos = d.ropePos || 0;
   const rp = Math.max(-1, Math.min(1, ropePos));
@@ -974,7 +1037,8 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
       // toward the rope (see lib/shared/tug.ts — keeps them off the pit at start)
       let bx = pullerStandX(edge, side < 0 ? -1 : 1, i, lean);
       let by = groundY - 18 + (i % 2 === 0 ? -26 : 14);
-      let anim = "run";
+      // braced & still during the GO hold; mid-pull "run" only once it's live
+      let anim = frozen ? "idle" : "run";
       let rot = 0;
       let alpha = 1;
       if (losing && fallT > 0) {
@@ -988,7 +1052,7 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
       } else if (loserTeam >= 0 && !losing) {
         anim = "cheer"; // winners celebrate
       }
-      const sway = losing || loserTeam >= 0 ? 0 : Math.sin(rc.time * 0.02 + i) * 5;
+      const sway = frozen || losing || loserTeam >= 0 ? 0 : Math.sin(rc.time * 0.02 + i) * 5;
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.translate(bx + sway, by);
@@ -2013,14 +2077,62 @@ function drawChairs(ctx: CanvasRenderingContext2D, d: any, t: number) {
     ctx.fillStyle = "rgba(255,255,255,0.55)";
     ctx.fillText("…don't you dare stand still", ARENA_W / 2, 96);
   } else if (d.phase === "music") {
+    // spell out the whole rule: move NOW, and the chairs only appear once it stops
     ctx.fillStyle = "#69f0ae";
-    ctx.fillText("🎵 keep moving — or you're out!", ARENA_W / 2, 70);
+    ctx.fillText("🎵 KEEP MOVING!", ARENA_W / 2, 70);
+    ctx.font = "700 20px 'Baloo 2', sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.fillText("stand still and you're OUT · chairs drop when the music STOPS", ARENA_W / 2, 96);
   } else if (d.phase === "scramble") {
     ctx.fillStyle = "#ff5252";
     ctx.fillText("🪑 GRAB A CHAIR!", ARENA_W / 2, 70);
   }
   ctx.restore();
   for (const c of d.chairs || []) drawStool(ctx, c.x, c.y, c.claimed, d.phase);
+}
+
+// A floating "⚠ MOVE!" countdown over any blob that's stopped dancing during the
+// music, and a loud banner when that blob is YOU — so the keep-moving rule is
+// unmistakable and nobody's eliminated without a clear, ticking heads-up.
+function drawChairsWarn(ctx: CanvasRenderingContext2D, d: any, actors: Actor[], rc: RenderCtx) {
+  const warn: { id: string; left: number }[] = d.warn || [];
+  if (!warn.length) return;
+  const pulse = 0.5 + 0.5 * Math.sin(rc.time * 0.03);
+  ctx.save();
+  ctx.textAlign = "center";
+  for (const w of warn) {
+    const a = actors.find((x) => x.id === w.id);
+    if (!a) continue;
+    const y = a.y - PLAYER_RADIUS * 2.1;
+    ctx.shadowColor = "rgba(0,0,0,0.55)";
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = `rgba(255,82,82,${0.6 + 0.4 * pulse})`;
+    ctx.font = "900 26px 'Baloo 2', sans-serif";
+    ctx.fillText("⚠ MOVE!", a.x, y);
+    ctx.fillStyle = "#fff";
+    ctx.font = "800 19px 'Baloo 2', sans-serif";
+    ctx.fillText(w.left.toFixed(1), a.x, y + 21);
+    ctx.shadowBlur = 0;
+  }
+  // It's you about to be claimed — slam a banner up top so there's zero ambiguity.
+  const mine = warn.find((w) => w.id === rc.youId);
+  if (mine) {
+    const cx = ARENA_W / 2;
+    const y = 156;
+    ctx.fillStyle = `rgba(150,16,34,${0.72 + 0.18 * pulse})`;
+    ctx.strokeStyle = "rgba(255,82,82,0.95)";
+    ctx.lineWidth = 4;
+    roundRect(ctx, cx - 240, y - 42, 480, 78, 18);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font = "900 40px 'Baloo 2', sans-serif";
+    ctx.fillText("⚠️ KEEP MOVING! ⚠️", cx, y);
+    ctx.font = "800 18px 'Baloo 2', sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText(`floor takes you in ${mine.left.toFixed(1)}s`, cx, y + 26);
+  }
+  ctx.restore();
 }
 
 function drawStool(ctx: CanvasRenderingContext2D, x: number, y: number, claimed: boolean, phase: string) {

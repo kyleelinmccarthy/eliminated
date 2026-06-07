@@ -29,7 +29,7 @@ export const CHANGELOG: PatchEntry[] = [
     tag: "Feature",
     title: "Drip & The Dead Pool",
     notes: [
-      "👒 ACCESSORIES: spend your Marbles dressing your blob to die in style. Hats (beanie, party hat, top hat), eyewear (round glasses, sunglasses), neckwear (outlaw bandana, dapper bow tie), and a little something behind the ear (a flower, a feather). Buy them in the lobby under “Dress your blob.”",
+      "👒 ACCESSORIES: spend your Marbles dressing your blob to die in style. Hats (beanie, baseball cap, party hat, cowboy hat, top hat, crown), eyewear (round & square glasses, cat-eye, sunglasses, aviators, round shades), neckwear (outlaw bandana, dapper bow tie), and a little something behind the ear (flowers in every color, a feather, even a banana). Buy them in the lobby under “Dress your blob.”",
       "Mix and match one item per slot — hat + shades + bandana + ear-flower all at once — and everyone sees your full ensemble in every game. Looking incredible offers exactly zero protection. As intended.",
       "☠️ THE DEAD POOL (Hardcore only): being eliminated is no longer just spectating. Bet the Marbles you earned this run on who'll be the last blob standing and keep cashing in from the afterlife.",
       "Odds scale with the field: call the winner while the crowd is big and it pays big (a five-blob field pays 5×); wait for the 1v1 final and it's even money. Your pick gets boxed up? You're warned to re-bet before the finale — or kiss the wager goodbye. Settled the instant a champion is crowned.",

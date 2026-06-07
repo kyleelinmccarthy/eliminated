@@ -13,6 +13,7 @@ import { haveIBeenPwned } from "better-auth/plugins";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
 import { mkdirSync } from "node:fs";
 import { sendEmail } from "./email";
+import { deleteAccountData } from "./db";
 
 const url = process.env.DATABASE_URL ?? "file:./data/eliminated.db";
 // Local file needs its parent dir to exist before libSQL opens it (mirrors db.ts).
@@ -42,6 +43,19 @@ export const auth = betterAuth({
          <p><a href="${url}">Set a new password</a> before someone else claims your Marbles.</p>
          <p>Didn't ask for this? Ignore it — your account stays locked, like the doors.</p>`,
       });
+    },
+  },
+  user: {
+    deleteUser: {
+      // Lets a signed-in player delete their own account from Account Settings.
+      // Verification: email/password users must re-enter their password; social
+      // (Google) users rely on a fresh session (Better Auth's default freshAge).
+      enabled: true,
+      // Run BEFORE the auth row is removed so account deletion also wipes the
+      // player's game profile (marbles, wins, unlocks) — nothing left behind.
+      beforeDelete: async (user) => {
+        await deleteAccountData(user.id);
+      },
     },
   },
   emailVerification: {

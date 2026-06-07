@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { authClient } from "@/lib/client/auth-client";
 import { useGame, net } from "@/lib/client/net";
 import { audio } from "@/lib/client/audio";
+import { AccountSettings } from "./AccountSettings";
 
 type View = "signin" | "signup" | "forgot";
 
@@ -34,6 +35,8 @@ export function AccountButton({
   const [notice, setNotice] = useState<string | null>(null);
   const [googleOn, setGoogleOn] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Portal target (document.body) only exists on the client.
   useEffect(() => setMounted(true), []);
@@ -155,17 +158,58 @@ export function AccountButton({
     const u = session.user;
     return (
       <div className="acct">
-        {!u.emailVerified && (
-          <button className="pill warn" onClick={resendVerify} title="Resend verification email">
-            ⚠️ Verify
-          </button>
-        )}
-        <span className="pill chip" title={u.email}>
+        <button
+          className="pill chip"
+          title={u.email}
+          onClick={() => setMenuOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+        >
           💾 {u.name || u.email}
-        </span>
-        <button className="pill" onClick={handleSignOut}>
-          Sign out
+          {!u.emailVerified && <span className="dot" title="Email not verified" aria-hidden>⚠️</span>}
+          <span className="caret" aria-hidden>▾</span>
         </button>
+        {menuOpen && (
+          <>
+            <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
+            <div className="menu" role="menu">
+              {!u.emailVerified && (
+                <button
+                  className="menu-item warn"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    resendVerify();
+                  }}
+                >
+                  ⚠️ Resend verification
+                </button>
+              )}
+              <button
+                className="menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setSettingsOpen(true);
+                }}
+              >
+                ⚙️ Account settings
+              </button>
+              <div className="menu-sep" />
+              <button
+                className="menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  handleSignOut();
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+          </>
+        )}
+        <AccountSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         {notice && <span className="tiny good float">{notice}</span>}
         <style jsx>{`
           .acct {
@@ -175,15 +219,66 @@ export function AccountButton({
             position: relative;
           }
           .chip {
-            max-width: 160px;
+            max-width: 180px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            cursor: default;
+            cursor: pointer;
           }
-          .warn {
+          .caret {
+            font-size: 0.7em;
+            opacity: 0.7;
+            margin-left: 1px;
+          }
+          .dot {
+            font-size: 0.8em;
+            margin-left: 2px;
+          }
+          .menu-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+          }
+          .menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            z-index: 51;
+            min-width: 150px;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            background: var(--panel-2);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(8px);
+            animation: menupop 0.14s ease both;
+          }
+          .menu-item {
+            background: none;
+            border: none;
+            color: var(--ink);
+            text-align: left;
+            padding: 8px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: background 0.12s;
+          }
+          .menu-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+          }
+          .menu-item.warn {
             color: var(--yellow);
-            border-color: var(--yellow);
+          }
+          .menu-sep {
+            height: 1px;
+            margin: 2px 6px;
+            background: var(--line);
           }
           .float {
             position: absolute;
@@ -193,6 +288,12 @@ export function AccountButton({
           }
           .good {
             color: var(--teal);
+          }
+          @keyframes menupop {
+            from {
+              transform: translateY(-4px);
+              opacity: 0;
+            }
           }
         `}</style>
       </div>

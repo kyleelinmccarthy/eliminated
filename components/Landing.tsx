@@ -8,6 +8,7 @@ import { CURRENCY, CURRENCY_ICON } from "@/lib/shared/constants";
 import { CHARACTERS } from "@/lib/shared/characters";
 import { GAMES, ALL_GAME_IDS } from "@/lib/shared/games";
 import { CharacterPicker } from "./CharacterPicker";
+import { AccessoryPicker } from "./AccessoryPicker";
 import { BlobAvatar } from "./BlobAvatar";
 import { GamePreview } from "./GamePreview";
 import { MuteButton } from "./MuteButton";
@@ -31,6 +32,7 @@ export function Landing() {
   const [localName, setLocalName] = useState(name);
   const [code, setCode] = useState("");
   const [mode, setMode] = useState<"menu" | "join">("menu");
+  const [shopTab, setShopTab] = useState<"blob" | "acc">("blob");
   const [floaters, setFloaters] = useState<Floater[]>([]);
 
   useEffect(() => setLocalName(name), [name]);
@@ -120,7 +122,6 @@ export function Landing() {
         <Link className="pill" href="/changelog">
           📓 Patch Notes
         </Link>
-        <FeedbackButton />
         <AccountButton />
         <MuteButton />
       </div>
@@ -181,7 +182,41 @@ export function Landing() {
                     </div>
                   </div>
                 </div>
-                <CharacterPicker value={characterId} onPick={(id) => net.setCharacter(id)} />
+                <div className="shop">
+                  <div className="shop-tabs" role="tablist" aria-label="Cosmetics shop">
+                    <button
+                      role="tab"
+                      aria-selected={shopTab === "blob"}
+                      className={`shop-tab ${shopTab === "blob" ? "active" : ""}`}
+                      onClick={() => {
+                        audio.sfx("blip");
+                        setShopTab("blob");
+                      }}
+                    >
+                      🧍 Blobs
+                    </button>
+                    <button
+                      role="tab"
+                      aria-selected={shopTab === "acc"}
+                      className={`shop-tab acc ${shopTab === "acc" ? "active" : ""}`}
+                      onClick={() => {
+                        audio.sfx("blip");
+                        setShopTab("acc");
+                      }}
+                    >
+                      💅 Accessories
+                    </button>
+                  </div>
+                  <p className="shop-note tiny dim">
+                    {CURRENCY_ICON} Marbles buy both — blobs <em>and</em> accessories. Every unlock is permanent and follows you into
+                    every game, so spend however you like.
+                  </p>
+                  {shopTab === "blob" ? (
+                    <CharacterPicker value={characterId} onPick={(id) => net.setCharacter(id)} />
+                  ) : (
+                    <AccessoryPicker />
+                  )}
+                </div>
               </div>
 
               <div className="col joinbox">
@@ -360,6 +395,45 @@ export function Landing() {
            instead of blowing out the grid and shoving the join box off-screen. */
         .setup-grid > * {
           min-width: 0;
+        }
+        /* Segmented control that swaps the blob shop and the accessory shop in
+           place, so both spends live on the home page instead of accessories
+           being a lobby-only surprise. Active tab borrows each picker's accent
+           (pink for blobs, teal for accessories) so the color foreshadows the
+           strip it reveals. */
+        .shop-tabs {
+          display: flex;
+          gap: 6px;
+          margin-bottom: 2px;
+        }
+        .shop-tab {
+          flex: 1;
+          padding: 7px 10px;
+          border-radius: 12px;
+          border: 2px solid var(--line);
+          background: rgba(0, 0, 0, 0.25);
+          color: var(--ink-dim);
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: 0.86rem;
+          cursor: pointer;
+          transition: transform 0.1s, border-color 0.1s, color 0.1s, background 0.1s;
+        }
+        .shop-tab:hover {
+          transform: translateY(-1px);
+        }
+        .shop-tab.active {
+          color: var(--ink);
+          border-color: var(--pink);
+          background: rgba(255, 79, 154, 0.16);
+        }
+        .shop-tab.acc.active {
+          border-color: var(--teal);
+          background: rgba(31, 227, 194, 0.16);
+        }
+        .shop-note {
+          margin: 6px 2px 2px;
+          line-height: 1.3;
         }
         .joinbox {
           gap: 12px;

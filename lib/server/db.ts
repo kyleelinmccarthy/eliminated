@@ -199,6 +199,25 @@ export async function setProfileName(clientId: string, name: string): Promise<vo
   await saveRow(row);
 }
 
+// Hard-delete a player's game profile (marbles, wins, unlocks — everything) when
+// their account is deleted. Called from Better Auth's deleteUser.beforeDelete
+// hook so account removal also wipes progress, leaving nothing behind. Keyed by
+// the account profile key (acct_<userId>); matches on either the key or the
+// userId column to catch any stray rows. Idempotent — a no-op if nothing exists.
+export async function deleteAccountData(userId: string): Promise<void> {
+  await initDb();
+  const key = "acct_" + userId;
+  if (client) {
+    await client.execute({
+      sql: "DELETE FROM profiles WHERE clientId = ? OR userId = ?",
+      args: [key, userId],
+    });
+  } else {
+    memory.delete(key);
+    for (const [k, v] of memory) if (v.userId === userId) memory.delete(k);
+  }
+}
+
 function parseList(s: string): string[] {
   try {
     const v = JSON.parse(s || "[]");

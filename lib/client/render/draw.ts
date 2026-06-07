@@ -752,6 +752,7 @@ function drawEyewear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
   const dx = r * 0.32;
   ctx.save();
   if (acc.kind === "shades") {
+    // rectangular wayfarer shades
     const lw = r * 0.38;
     const lh = r * 0.32;
     for (const s of [-1, 1]) {
@@ -773,8 +774,122 @@ function drawEyewear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
     ctx.moveTo(dx + lw / 2, eyeY);
     ctx.lineTo(dx + lw / 2 + r * 0.28, eyeY - r * 0.06);
     ctx.stroke();
+  } else if (acc.kind === "aviators") {
+    // teardrop aviators with a metal (c2) frame + double brow bar
+    const metal = acc.c2 ?? "#d4af37";
+    const lw = r * 0.4;
+    const lh = r * 0.36;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(s * dx, eyeY + r * 0.03, lw * 0.5, lh * 0.5, s * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = acc.c1;
+      ctx.fill();
+      ctx.lineWidth = r * 0.045;
+      ctx.strokeStyle = metal;
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.beginPath();
+      ctx.ellipse(s * dx - lw * 0.14, eyeY - lh * 0.16, lw * 0.16, lh * 0.1, s * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = metal;
+    ctx.lineWidth = r * 0.045;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-dx + lw * 0.38, eyeY - lh * 0.34); // brow bar
+    ctx.lineTo(dx - lw * 0.38, eyeY - lh * 0.34);
+    ctx.moveTo(-dx + lw * 0.42, eyeY - lh * 0.06); // bridge
+    ctx.lineTo(dx - lw * 0.42, eyeY - lh * 0.06);
+    ctx.moveTo(-dx - lw * 0.46, eyeY - lh * 0.18); // temple arms
+    ctx.lineTo(-dx - lw * 0.46 - r * 0.28, eyeY - r * 0.08);
+    ctx.moveTo(dx + lw * 0.46, eyeY - lh * 0.18);
+    ctx.lineTo(dx + lw * 0.46 + r * 0.28, eyeY - r * 0.08);
+    ctx.stroke();
+  } else if (acc.kind === "roundshades") {
+    // round retro tinted lenses (Lennon style)
+    const frame = acc.c2 ?? shade(acc.c1, 40);
+    const lens = r * 0.28;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(s * dx, eyeY, lens, 0, Math.PI * 2);
+      ctx.fillStyle = acc.c1;
+      ctx.fill();
+      ctx.lineWidth = r * 0.05;
+      ctx.strokeStyle = frame;
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.2)";
+      ctx.beginPath();
+      ctx.arc(s * dx - lens * 0.34, eyeY - lens * 0.34, lens * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = frame;
+    ctx.lineWidth = r * 0.05;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-dx + lens, eyeY);
+    ctx.lineTo(dx - lens, eyeY);
+    ctx.moveTo(-dx - lens, eyeY);
+    ctx.lineTo(-dx - lens - r * 0.3, eyeY - r * 0.06);
+    ctx.moveTo(dx + lens, eyeY);
+    ctx.lineTo(dx + lens + r * 0.3, eyeY - r * 0.06);
+    ctx.stroke();
+  } else if (acc.kind === "squareglasses") {
+    // rectangular hipster frames (clear lenses)
+    const lw = r * 0.36;
+    const lh = r * 0.3;
+    ctx.lineWidth = r * 0.05;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = acc.c1;
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = "rgba(190,235,255,0.2)";
+      roundRectPath(ctx, s * dx - lw / 2, eyeY - lh / 2, lw, lh, r * 0.06);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(-dx + lw / 2, eyeY);
+    ctx.lineTo(dx - lw / 2, eyeY);
+    ctx.moveTo(-dx - lw / 2, eyeY - r * 0.02);
+    ctx.lineTo(-dx - lw / 2 - r * 0.3, eyeY - r * 0.06);
+    ctx.moveTo(dx + lw / 2, eyeY - r * 0.02);
+    ctx.lineTo(dx + lw / 2 + r * 0.3, eyeY - r * 0.06);
+    ctx.stroke();
+  } else if (acc.kind === "cateye") {
+    // cat-eye frames: upswept outer corners (clear lenses)
+    const lw = r * 0.38;
+    const lh = r * 0.3;
+    for (const s of [-1, 1]) {
+      ctx.save();
+      ctx.translate(s * dx, eyeY);
+      ctx.scale(s, 1); // mirror so "outer" is always +x
+      ctx.beginPath();
+      ctx.moveTo(-lw * 0.5, -lh * 0.3); // inner top
+      ctx.quadraticCurveTo(lw * 0.5, -lh * 0.95, lw * 0.72, -lh * 0.25); // upswept wing tip
+      ctx.quadraticCurveTo(lw * 0.5, lh * 0.6, 0, lh * 0.55); // outer down to bottom
+      ctx.quadraticCurveTo(-lw * 0.6, lh * 0.5, -lw * 0.5, -lh * 0.3); // back to inner top
+      ctx.closePath();
+      ctx.fillStyle = "rgba(190,235,255,0.2)";
+      ctx.fill();
+      ctx.lineWidth = r * 0.05;
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = acc.c1;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.strokeStyle = acc.c1;
+    ctx.lineWidth = r * 0.05;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-dx + lw * 0.4, eyeY - lh * 0.1); // bridge
+    ctx.lineTo(dx - lw * 0.4, eyeY - lh * 0.1);
+    ctx.moveTo(-dx - lw * 0.6, eyeY - lh * 0.3); // temple arms off the wings
+    ctx.lineTo(-dx - lw * 0.6 - r * 0.26, eyeY - r * 0.08);
+    ctx.moveTo(dx + lw * 0.6, eyeY - lh * 0.3);
+    ctx.lineTo(dx + lw * 0.6 + r * 0.26, eyeY - r * 0.08);
+    ctx.stroke();
   } else {
-    // round wire glasses
+    // round wire glasses (default)
     const lens = r * 0.26;
     ctx.lineWidth = r * 0.055;
     ctx.lineCap = "round";
@@ -836,21 +951,95 @@ function drawHeadwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) 
     ctx.beginPath();
     ctx.arc(0, -r * 1.94, r * 0.13, 0, Math.PI * 2);
     ctx.fill();
-  } else {
-    // beanie
+  } else if (acc.kind === "cap") {
+    // baseball cap: domed crown + a forward brim poking to one side
     ctx.fillStyle = acc.c1;
     ctx.beginPath();
-    ctx.moveTo(-r * 0.82, -r * 0.78);
-    ctx.quadraticCurveTo(-r * 0.82, -r * 1.62, 0, -r * 1.62);
-    ctx.quadraticCurveTo(r * 0.82, -r * 1.62, r * 0.82, -r * 0.78);
+    ctx.ellipse(0, -r * 0.86, r * 0.72, r * 0.64, 0, Math.PI, Math.PI * 2); // domed crown
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = acc.c2 ?? "#fff";
-    roundRectPath(ctx, -r * 0.9, -r * 0.94, r * 1.8, r * 0.26, r * 0.12); // brim band
+    ctx.fillStyle = shade(acc.c1, -20); // brim
+    ctx.beginPath();
+    ctx.ellipse(r * 0.52, -r * 0.82, r * 0.52, r * 0.16, -0.12, 0, Math.PI * 2);
     ctx.fill();
-    ctx.beginPath(); // pom
-    ctx.arc(0, -r * 1.64, r * 0.16, 0, Math.PI * 2);
+    ctx.fillStyle = acc.c2 ?? shade(acc.c1, 26); // front panel + button
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.88, r * 0.3, r * 0.46, 0, Math.PI, Math.PI * 2);
+    ctx.closePath();
     ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, -r * 1.48, r * 0.08, 0, Math.PI * 2); // top button
+    ctx.fill();
+  } else if (acc.kind === "cowboy") {
+    // cowboy hat: wide curled brim + pinched crown with a band
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.06, -r * 0.74);
+    ctx.quadraticCurveTo(0, -r * 0.5, r * 1.06, -r * 0.74); // brim top, dipping in the middle
+    ctx.quadraticCurveTo(0, -r * 1.04, -r * 1.06, -r * 0.74); // curled underside
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath(); // crown
+    ctx.moveTo(-r * 0.46, -r * 0.82);
+    ctx.quadraticCurveTo(-r * 0.52, -r * 1.5, -r * 0.16, -r * 1.52);
+    ctx.quadraticCurveTo(0, -r * 1.34, r * 0.16, -r * 1.52); // center pinch
+    ctx.quadraticCurveTo(r * 0.52, -r * 1.5, r * 0.46, -r * 0.82);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = acc.c2 ?? "#5b3a22"; // band
+    ctx.fillRect(-r * 0.48, -r * 0.98, r * 0.96, r * 0.16);
+  } else if (acc.kind === "crown") {
+    // king's crown: gold zigzag with jewels
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.7, -r * 0.78);
+    ctx.lineTo(-r * 0.7, -r * 1.2);
+    ctx.lineTo(-r * 0.36, -r * 0.92);
+    ctx.lineTo(0, -r * 1.34);
+    ctx.lineTo(r * 0.36, -r * 0.92);
+    ctx.lineTo(r * 0.7, -r * 1.2);
+    ctx.lineTo(r * 0.7, -r * 0.78);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = shade(acc.c1, -28); // base band
+    ctx.fillRect(-r * 0.7, -r * 0.88, r * 1.4, r * 0.12);
+    ctx.fillStyle = acc.c2 ?? "#e23b4e"; // jewels on the points
+    for (const [jx, jy] of [[-0.7, -1.2], [0, -1.34], [0.7, -1.2]]) {
+      ctx.beginPath();
+      ctx.arc(jx * r, jy * r, r * 0.09, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // beanie: knit dome with a folded ribbed cuff (no santa pom)
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.78, -r * 0.82);
+    ctx.quadraticCurveTo(-r * 0.84, -r * 1.64, 0, -r * 1.66);
+    ctx.quadraticCurveTo(r * 0.84, -r * 1.64, r * 0.78, -r * 0.82);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save(); // vertical knit ribbing on the dome, clipped to it
+    ctx.clip();
+    ctx.strokeStyle = shade(acc.c1, -16);
+    ctx.lineWidth = r * 0.04;
+    for (let i = -3; i <= 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * r * 0.22, -r * 0.84);
+      ctx.lineTo(i * r * 0.22, -r * 1.62);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.fillStyle = acc.c2 ?? shade(acc.c1, 22); // folded cuff
+    roundRectPath(ctx, -r * 0.9, -r * 1.0, r * 1.8, r * 0.32, r * 0.16);
+    ctx.fill();
+    ctx.strokeStyle = shade(acc.c2 ?? shade(acc.c1, 22), -22); // cuff ribbing
+    ctx.lineWidth = r * 0.035;
+    for (let i = -3; i <= 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * r * 0.24, -r * 0.96);
+      ctx.lineTo(i * r * 0.24, -r * 0.72);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -918,6 +1107,36 @@ function drawEarwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
     ctx.moveTo(0, -r * 0.72);
     ctx.lineTo(0, r * 0.06);
     ctx.stroke();
+  } else if (acc.kind === "banana" || acc.kind === "spotbanana") {
+    // a banana tucked behind the ear (crescent with browned tips)
+    ctx.rotate(-0.4);
+    const u = r * 0.52;
+    ctx.fillStyle = acc.c1;
+    ctx.beginPath();
+    ctx.moveTo(-u * 0.12, -u); // stem tip
+    ctx.bezierCurveTo(u * 0.92, -u * 0.66, u * 0.96, u * 0.42, u * 0.26, u * 0.96); // outer curve
+    ctx.bezierCurveTo(u * 0.5, u * 0.32, u * 0.36, -u * 0.4, -u * 0.12, -u); // inner curve back
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = shade(acc.c1, -30); // inner ridge for definition
+    ctx.lineWidth = r * 0.03;
+    ctx.stroke();
+    const tip = acc.c2 ?? "#6b4a2b";
+    ctx.fillStyle = tip; // browned tips
+    ctx.beginPath();
+    ctx.arc(-u * 0.12, -u, r * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(u * 0.26, u * 0.96, r * 0.055, 0, Math.PI * 2);
+    ctx.fill();
+    if (acc.kind === "spotbanana") {
+      ctx.fillStyle = "rgba(70,45,25,0.7)"; // overripe freckles
+      for (const [sx, sy] of [[0.18, -0.34], [0.42, 0.1], [0.18, 0.42]]) {
+        ctx.beginPath();
+        ctx.arc(sx * u, sy * u, r * 0.04, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   } else {
     // flower
     const pr = r * 0.18;

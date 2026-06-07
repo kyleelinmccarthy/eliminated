@@ -25,16 +25,26 @@ export interface Accessory {
 
 // Cheapest first within each slot, so the picker reads as a little price ladder.
 export const ACCESSORIES: Accessory[] = [
-  // ---- head ----
+  // ---- head (hats) ----
   {
     id: "beanie",
     name: "Last Warm Thought",
     slot: "head",
     kind: "beanie",
-    c1: "#ef5350",
-    c2: "#fff3e0",
+    c1: "#46618f", // slate-blue knit (no longer santa red)
+    c2: "#e0a23c", // mustard folded cuff
     price: 120,
     catchphrase: "Cozy right up until the end.",
+  },
+  {
+    id: "cap",
+    name: "Last At Bat",
+    slot: "head",
+    kind: "cap",
+    c1: "#2e7d5b",
+    c2: "#f4f4f0",
+    price: 150,
+    catchphrase: "Three strikes. You know the rest.",
   },
   {
     id: "partyhat",
@@ -47,6 +57,16 @@ export const ACCESSORIES: Accessory[] = [
     catchphrase: "It's a celebration. Of your removal.",
   },
   {
+    id: "cowboy",
+    name: "Last Rodeo",
+    slot: "head",
+    kind: "cowboy",
+    c1: "#a9743f",
+    c2: "#5b3a22",
+    price: 280,
+    catchphrase: "This town's about to get smaller.",
+  },
+  {
     id: "tophat",
     name: "Cap Capitalist",
     slot: "head",
@@ -56,7 +76,17 @@ export const ACCESSORIES: Accessory[] = [
     price: 360,
     catchphrase: "Old money. New corpse.",
   },
-  // ---- eyes ----
+  {
+    id: "crown",
+    name: "Heavy Is the Head",
+    slot: "head",
+    kind: "crown",
+    c1: "#f5c945",
+    c2: "#e23b4e",
+    price: 420,
+    catchphrase: "Uneasy lies the head. Then it just lies there.",
+  },
+  // ---- eyes (eyewear) ----
   {
     id: "glasses",
     name: "Hindsight 20/20",
@@ -68,6 +98,36 @@ export const ACCESSORIES: Accessory[] = [
     catchphrase: "You'll see it coming. Won't help.",
   },
   {
+    id: "specs",
+    name: "Fine Print",
+    slot: "eyes",
+    kind: "squareglasses",
+    c1: "#3a2f2a",
+    c2: "#bfe9ff",
+    price: 160,
+    catchphrase: "You read the rules. They got you anyway.",
+  },
+  {
+    id: "cateye",
+    name: "Last Look",
+    slot: "eyes",
+    kind: "cateye",
+    c1: "#c2185b",
+    c2: "#ffd54f",
+    price: 190,
+    catchphrase: "Cat-eye. Nine lives not included.",
+  },
+  {
+    id: "rounds",
+    name: "Dead Cool",
+    slot: "eyes",
+    kind: "roundshades",
+    c1: "#1b1d22",
+    c2: "#b08d57",
+    price: 240,
+    catchphrase: "Too round to give a damn.",
+  },
+  {
     id: "shades",
     name: "Future's So Bright",
     slot: "eyes",
@@ -77,7 +137,17 @@ export const ACCESSORIES: Accessory[] = [
     price: 260,
     catchphrase: "Too cool to flinch.",
   },
-  // ---- neck ----
+  {
+    id: "aviators",
+    name: "Top Gunned",
+    slot: "eyes",
+    kind: "aviators",
+    c1: "#2b3a3f",
+    c2: "#d4af37",
+    price: 300,
+    catchphrase: "Maverick energy. Wingman gone.",
+  },
+  // ---- neck (neckwear) ----
   {
     id: "bandana",
     name: "Dead Man's Bandana",
@@ -98,7 +168,17 @@ export const ACCESSORIES: Accessory[] = [
     price: 220,
     catchphrase: "Look sharp, die sharp.",
   },
-  // ---- ear ----
+  // ---- ear (behind the ear) ----
+  {
+    id: "banana",
+    name: "Slippery Slope",
+    slot: "ear",
+    kind: "banana",
+    c1: "#ffd83b", // ripe yellow
+    c2: "#6b4a2b", // brown stem + tip
+    price: 80,
+    catchphrase: "One wrong step. Classic.",
+  },
   {
     id: "flower",
     name: "Pushing Daisies",
@@ -108,6 +188,56 @@ export const ACCESSORIES: Accessory[] = [
     c2: "#ffd54f",
     price: 90,
     catchphrase: "A blossom for the bereaved.",
+  },
+  {
+    id: "greenana",
+    name: "Not Quite Ripe",
+    slot: "ear",
+    kind: "banana",
+    c1: "#bcd14a", // green
+    c2: "#5a6b2b",
+    price: 100,
+    catchphrase: "Cut down before your time. Literally.",
+  },
+  {
+    id: "rose",
+    name: "Bleeding Heart",
+    slot: "ear",
+    kind: "flower",
+    c1: "#e23b4e", // red
+    c2: "#ffd54f",
+    price: 130,
+    catchphrase: "Romance is dead. You're next.",
+  },
+  {
+    id: "bluebell",
+    name: "Forget-Me-Now",
+    slot: "ear",
+    kind: "flower",
+    c1: "#5b8def", // blue
+    c2: "#fff3a0",
+    price: 150,
+    catchphrase: "They will. Almost immediately.",
+  },
+  {
+    id: "sunflower",
+    name: "Late Bloomer",
+    slot: "ear",
+    kind: "flower",
+    c1: "#ffca28", // yellow
+    c2: "#6d4c2f", // brown seed center
+    price: 170,
+    catchphrase: "Reaching for the sun. Caught the reaper.",
+  },
+  {
+    id: "spotnana",
+    name: "Past Your Prime",
+    slot: "ear",
+    kind: "spotbanana",
+    c1: "#e3a92f", // overripe golden-brown
+    c2: "#5a3b22",
+    price: 190,
+    catchphrase: "A few spots. A lot of regrets.",
   },
   {
     id: "feather",

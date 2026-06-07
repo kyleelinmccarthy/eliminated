@@ -746,6 +746,19 @@ function handleSnapshotAudio(
       prevPhase.current = phase;
     }
   }
+  if (snap.game === "mingle") {
+    // music plays while the platform spins (wander); the instant it STOPS a
+    // number is called (mingle) — kill the loop and hit a sting so the cue lands.
+    const phase = (snap.data as any)?.phase;
+    if (phase && phase !== prevPhase.current) {
+      if (phase === "wander") audio.startMusic();
+      else {
+        audio.stopMusic();
+        if (prevPhase.current === "wander") audio.sfx("alarm");
+      }
+      prevPhase.current = phase;
+    }
+  }
   if (snap.game === "simonsays") {
     const d: any = snap.data || {};
     // announce each new order exactly once, when its reaction window opens
