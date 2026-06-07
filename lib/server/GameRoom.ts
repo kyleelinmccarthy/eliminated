@@ -10,6 +10,7 @@ import type {
   SeriesResult,
   SeriesStanding,
   IntroPayload,
+  Snapshot,
 } from "../shared/types";
 import { ALL_GAME_IDS, GAMES, gameMeta } from "../shared/games";
 import { MAPS } from "../shared/maps";
@@ -160,6 +161,23 @@ export class GameRoom {
 
   broadcast(msg: ServerMessage): void {
     for (const p of this.players.values()) p.send?.(msg);
+  }
+
+  // Snapshots are normally broadcast verbatim, but a game may attach a `secrets`
+  // map (playerId -> private payload) for hidden-role info. We never let that map
+  // leave the server: each player gets the shared snapshot with ONLY their own
+  // slice folded in as `secret`. Without secrets this is just a broadcast.
+  private sendSnapshot(snap: Snapshot): void {
+    const secrets = snap.secrets;
+    if (!secrets) {
+      this.broadcast({ t: "snapshot", snap });
+      return;
+    }
+    delete snap.secrets;
+    for (const p of this.players.values()) {
+      const sec = secrets[p.id];
+      p.send?.({ t: "snapshot", snap: sec === undefined ? snap : { ...snap, secret: sec } });
+    }
   }
 
   systemChat(text: string): void {
@@ -781,7 +799,7 @@ export class GameRoom {
           // While frozen, advertise when play begins so clients can run the
           // on-field 3·2·1·GO countdown over the (still) starting positions.
           if (!live) snap.startAt = this.playStartsAt;
-          this.broadcast({ t: "snapshot", snap });
+          this.sendSnapshot(snap);
           if (live && this.game.isDone()) this.endRound();
         }
         break;

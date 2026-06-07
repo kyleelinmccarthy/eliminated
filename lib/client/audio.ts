@@ -32,6 +32,8 @@ class AudioEngine {
   private voiceF: SpeechSynthesisVoice | null = null;
   private voiceM: SpeechSynthesisVoice | null = null;
   private voiceWatched = false;
+  // Keep-alive ticker for long TTS roll calls (see speak()).
+  private speakTimer: ReturnType<typeof setInterval> | null = null;
 
   init() {
     if (this.ctx || typeof window === "undefined") return;
@@ -57,6 +59,7 @@ class AudioEngine {
     if (typeof window !== "undefined") localStorage.setItem("eliminated:muted", m ? "1" : "0");
     if (m) {
       this.stopMusic();
+      this.stopKeepAlive();
       try {
         window.speechSynthesis?.cancel();
       } catch {
@@ -106,6 +109,48 @@ class AudioEngine {
     );
   }
 
+  // The Web Speech API (Chrome especially) silently truncates a single
+  // utterance — or a queue — that runs past ~15s, so a long elimination roll
+  // call ("Players 0 0 1, 0 0 2, …, eliminated.") gets cut off mid-list. Break
+  // the line into short clause-sized chunks that each speak well under that
+  // limit, queued back to back, packing pieces up to a word/char budget.
+  private chunkText(text: string, maxWords = 16, maxChars = 180): string[] {
+    const wc = (s: string) => (s.trim().match(/\S+/g) ?? []).length;
+    if (wc(text) <= maxWords && text.length <= maxChars) return [text];
+    // Clause-sized pieces, keeping their trailing punctuation and spacing.
+    const pieces = text.match(/[^,;.!?]+[,;.!?]*\s*/g) ?? [text];
+    const chunks: string[] = [];
+    let buf = "";
+    for (const p of pieces) {
+      if (buf && (wc(buf) + wc(p) > maxWords || (buf + p).length > maxChars)) {
+        chunks.push(buf.trim());
+        buf = "";
+      }
+      buf += p;
+    }
+    if (buf.trim()) chunks.push(buf.trim());
+    return chunks;
+  }
+
+  // Chrome halts a long speech queue after ~15s; a periodic pause+resume keeps
+  // it ticking until the roll call finishes. Stops itself once speech is done.
+  private startKeepAlive(synth: SpeechSynthesis) {
+    this.stopKeepAlive();
+    this.speakTimer = setInterval(() => {
+      if (!synth.speaking) {
+        this.stopKeepAlive();
+        return;
+      }
+      synth.pause();
+      synth.resume();
+    }, 10000);
+  }
+
+  private stopKeepAlive() {
+    if (this.speakTimer) clearInterval(this.speakTimer);
+    this.speakTimer = null;
+  }
+
   // Spoken voiceline via the browser's built-in TTS — no audio assets needed.
   // A flat, slightly slow robotic Game Master PA delivery. voice "f" (the
   // default) is the female eliminations voice; "m" is the male announcer.
@@ -115,15 +160,25 @@ class AudioEngine {
     if (!synth) return;
     try {
       synth.cancel(); // crisp, no overlap with a previous line
-      const u = new SpeechSynthesisUtterance(text);
+      this.stopKeepAlive();
       const gender = opts.voice ?? "f";
       const v = this.pickVoice(synth, gender);
-      if (v) u.voice = v;
-      u.rate = opts.rate ?? 0.85;
+      const rate = opts.rate ?? 0.85;
       // flat + low keeps it robotic without losing the gendered timbre
-      u.pitch = opts.pitch ?? (gender === "m" ? 0.7 : 0.8);
-      u.volume = 1;
-      synth.speak(u);
+      const pitch = opts.pitch ?? (gender === "m" ? 0.7 : 0.8);
+      const chunks = this.chunkText(text);
+      chunks.forEach((part, i) => {
+        const u = new SpeechSynthesisUtterance(part);
+        if (v) u.voice = v;
+        u.rate = rate;
+        u.pitch = pitch;
+        u.volume = 1;
+        // Tear down the keep-alive when the last chunk finishes or errors.
+        if (i === chunks.length - 1) u.onend = u.onerror = () => this.stopKeepAlive();
+        synth.speak(u);
+      });
+      // Only long, multi-chunk lines risk the timeout; short ones speak fine.
+      if (chunks.length > 1) this.startKeepAlive(synth);
     } catch {
       /* ignore */
     }

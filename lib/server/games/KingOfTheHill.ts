@@ -7,12 +7,25 @@
 
 import { ArenaGame, crownOne, type GameContext, type ArenaActor, type MinigameResult } from "./Minigame";
 import type { GameId, Snapshot } from "../../shared/types";
+import type { GameInput } from "../../shared/protocol";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
-import { dist } from "../../shared/util";
+import { dist, clamp } from "../../shared/util";
 import { PowerupField } from "./Powerups";
 
 const TIME_CAP = 60;
 const BURN_GRACE = 0.95; // seconds standing in lava before you burn out
+
+// --- SHOVE: the active "attack" (mouse-aim + click, or SPACE / button). It was
+// never obvious you could bump people out by just walking into them, so the
+// real way to launch a rival into the magma is a deliberate forward shove: a
+// brief self-lunge plus a hard knockback to anyone in the cone in front of you.
+const SHOVE_CD = 0.6; // seconds between shoves
+const SHOVE_LUNGE_DUR = 0.12; // brief self-lunge so the attack has weight
+const SHOVE_LUNGE_SPEED = 2.6; // moveActor speed multiplier during the lunge
+const SHOVE_RANGE = 66; // reach in FRONT, on top of both blobs' radii
+const SHOVE_ARC_COS = 0.32; // ~±71° cone — generous, you don't need pixel aim
+const SHOVE_IMPULSE = 380; // base knockback velocity (×2 for evenly-matched blobs)
+const KB_DECAY = 4.2; // knockback velocity falloff (higher = shorter launch)
 // Opening grace: for the first stretch of the round the starting islands hold
 // firm and sudden death CAN'T begin — so players get a real chance to hop from
 // island to island and read the board before anything starts shrinking. Without
@@ -58,6 +71,7 @@ export class KingOfTheHill extends ArenaGame {
       max: 6,
       goodWeight: 0.55,
       margin: 40,
+      emit: (k, x, y, e) => this.boom(k, x, y, e),
       spawnRegions: () =>
         this.islands.filter((i) => i.phase !== "sinking" && i.r > 46).map((i) => ({ x: i.x, y: i.y, r: i.r })),
     });
@@ -88,7 +102,13 @@ export class KingOfTheHill extends ArenaGame {
       a.data!.burnT = 0;
       a.data!.kingT = 0;
     });
-    this.ctx.toast("The floor is LAVA! Hop between the sinking islands — and RAM rivals into the magma!", "bad");
+    this.ctx.toast("The floor is LAVA! Hop between the sinking islands — aim and CLICK to SHOVE rivals into the magma!", "bad");
+  }
+
+  // mouse aim sets our facing; click / SPACE / button fires a shove next tick
+  protected onAction(a: ArenaActor, input: GameInput): void {
+    if (input.kind === "aim") a.data!.aim = input.angle;
+    else if (input.kind === "action" && input.name === "shove") a.data!.wantShove = 1;
   }
 
   private aliveActors() {
@@ -121,8 +141,28 @@ export class KingOfTheHill extends ArenaGame {
     for (const a of this.actors.values()) {
       if (!a.alive) continue;
       this.updateStatus(a, dt);
+      if ((a.data!.shoveCd || 0) > 0) a.data!.shoveCd = Math.max(0, a.data!.shoveCd! - dt);
       if (a.isBot) this.botThink(a);
-      this.moveActor(a, dt);
+
+      // fire a queued shove BEFORE moving so the self-lunge starts this very tick
+      if (a.data!.wantShove) {
+        a.data!.wantShove = 0;
+        this.doShove(a);
+      }
+
+      // mid-lunge we override the joystick with the locked-in shove direction
+      if ((a.data!.shoveT || 0) > 0) {
+        a.data!.shoveT! -= dt;
+        a.inDx = a.data!.shoveDx!;
+        a.inDy = a.data!.shoveDy!;
+        this.moveActor(a, dt, SHOVE_LUNGE_SPEED);
+        a.anim = "run";
+      } else {
+        this.moveActor(a, dt);
+      }
+      // desktop mouse aim drives facing; mobile/keyboard keeps movement facing
+      if (a.data!.aim !== undefined) a.facing = a.data!.aim;
+      this.applyKnockback(a, dt);
       this.powerups.collect(a);
     }
 
@@ -258,7 +298,65 @@ export class KingOfTheHill extends ArenaGame {
     return best;
   }
 
-  // gentle body collisions so blobs can shove rivals toward the lava
+  // The active attack: a forward lunge that LAUNCHES every rival caught in the
+  // cone ahead of you. Aimed with the mouse (or your last movement direction on
+  // touch). This — not bumping shoulders — is the intended way to make a kill.
+  private doShove(a: ArenaActor): void {
+    const d = a.data!;
+    if ((d.shoveCd || 0) > 0) return; // still cooling down (server is the authority)
+    const ang = d.aim ?? a.facing;
+    const dx = Math.cos(ang);
+    const dy = Math.sin(ang);
+    d.shoveDx = dx;
+    d.shoveDy = dy;
+    d.shoveT = SHOVE_LUNGE_DUR;
+    d.shoveCd = SHOVE_CD;
+    a.facing = ang;
+
+    let hit = false;
+    for (const o of this.aliveActors()) {
+      if (o === a) continue;
+      const ox = o.x - a.x;
+      const oy = o.y - a.y;
+      const dd = Math.hypot(ox, oy) || 0.001;
+      if (dd > SHOVE_RANGE + PLAYER_RADIUS * (a.scale + o.scale)) continue; // out of reach
+      if ((ox / dd) * dx + (oy / dd) * dy < SHOVE_ARC_COS) continue; // not in the front cone
+      // launch them straight away from us; heavier blobs take less, tiny ones fly
+      const power = SHOVE_IMPULSE * ((a.scale / (a.scale + o.scale)) * 2);
+      o.data!.kbX = (o.data!.kbX || 0) + (ox / dd) * power;
+      o.data!.kbY = (o.data!.kbY || 0) + (oy / dd) * power;
+      o.flash = 1;
+      this.boom("spark", o.x, o.y, { color: "#ff8a65" });
+      hit = true;
+    }
+    // the shove "tell": a shockwave + puff in front so the attack always reads
+    this.boom("shockwave", a.x + dx * 18, a.y + dy * 18, { color: hit ? "#ff5252" : "#ffd54f" });
+    this.boom("poof", a.x + dx * 24, a.y + dy * 24, { color: "#ffffff" });
+  }
+
+  // carry a shoved blob along its knockback velocity, easing it out over ~half a
+  // second (long enough to skid off an island, short enough to scramble back).
+  private applyKnockback(a: ArenaActor, dt: number): void {
+    const d = a.data!;
+    const kx = d.kbX || 0;
+    const ky = d.kbY || 0;
+    if (kx === 0 && ky === 0) return;
+    a.x += kx * dt;
+    a.y += ky * dt;
+    const r = PLAYER_RADIUS * a.scale;
+    a.x = clamp(a.x, r, ARENA_W - r);
+    a.y = clamp(a.y, r, ARENA_H - r);
+    const f = Math.max(0, 1 - dt * KB_DECAY);
+    d.kbX = kx * f;
+    d.kbY = ky * f;
+    if (Math.hypot(d.kbX, d.kbY) < 8) {
+      d.kbX = 0;
+      d.kbY = 0;
+    }
+  }
+
+  // gentle body collisions so blobs don't stack — the real launches come from
+  // doShove now, so this is just light separation (a feeble nudge, by design)
   private separate(): void {
     const alive = this.aliveActors();
     for (let i = 0; i < alive.length; i++) {
@@ -274,11 +372,11 @@ export class KingOfTheHill extends ArenaGame {
           const nx = dx / d;
           const ny = dy / d;
           // heavier (giant) blobs get pushed less; tiny blobs get shoved more.
-          // A punchier shove (3.4×) so ramming a rival actually launches them —
-          // it used to be a feeble nudge that barely moved anyone toward the lava.
+          // Just enough to keep blobs from stacking — the real launch comes from
+          // the active SHOVE (doShove), so passive contact is only a light nudge.
           const wa = b.scale / (a.scale + b.scale);
           const wb = a.scale / (a.scale + b.scale);
-          const PUSH = 3.4;
+          const PUSH = 1.5;
           a.x -= nx * overlap * PUSH * wa;
           a.y -= ny * overlap * PUSH * wa;
           b.x += nx * overlap * PUSH * wb;
@@ -384,10 +482,11 @@ export class KingOfTheHill extends ArenaGame {
       wy += ((pk.y - a.y) / (pd || 1)) * 0.6;
     }
 
-    // when we share an island with a rival, give the nearest one a shove
-    if (here && this.ctx.rng() < 0.3) {
+    // hunt the nearest rival: close in, and once they're in range fire an actual
+    // SHOVE (the same attack players use) to launch them off toward the lava
+    if (here) {
       let foe: ArenaActor | null = null;
-      let fd = 110;
+      let fd = Infinity;
       for (const o of this.aliveActors()) {
         if (o === a) continue;
         const od = dist(a.x, a.y, o.x, o.y);
@@ -396,9 +495,14 @@ export class KingOfTheHill extends ArenaGame {
           foe = o;
         }
       }
-      if (foe) {
+      if (foe && fd < 160) {
         wx += ((foe.x - a.x) / (fd || 1)) * 0.8;
         wy += ((foe.y - a.y) / (fd || 1)) * 0.8;
+        const reach = SHOVE_RANGE + PLAYER_RADIUS * (a.scale + foe.scale);
+        if ((a.data!.shoveCd || 0) <= 0 && fd < reach && this.ctx.rng() < 0.4) {
+          a.facing = Math.atan2(foe.y - a.y, foe.x - a.x);
+          a.data!.wantShove = 1;
+        }
       }
     }
 

@@ -145,6 +145,12 @@ export interface Snapshot {
   data?: any;
   // One-shot visual effects to spawn on clients this frame.
   fx?: Effect[];
+  // Private per-recipient payload, resolved by the server before sending. A game
+  // fills `secrets` (a playerId -> payload map); GameRoom strips that map and
+  // hands each player ONLY their own slice as `secret`, so hidden-role info (e.g.
+  // Secret Santa's giver picking a target) never rides the global broadcast.
+  secrets?: Record<string, any>;
+  secret?: any;
 }
 
 export interface Actor {

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { net, snapBuffer, useGame } from "@/lib/client/net";
 import { audio } from "@/lib/client/audio";
 import { recordGlassChoice } from "@/lib/client/glass";
+import { registerMashTap } from "@/lib/client/mashFx";
 import type { GameId } from "@/lib/shared/types";
 import { ARENA_W, ARENA_H } from "@/lib/shared/constants";
 import { SIMON_COMMANDS, SIMON_FREEZE, simonByHotkey } from "@/lib/shared/simon";
@@ -28,6 +29,8 @@ export function GameControls({ game }: { game: GameId }) {
 function MovementControls({ game }: { game: GameId }) {
   const isThrow = game === "boomerang" || game === "dodgeball";
   const isSpike = game === "keepyuppy";
+  const isShove = game === "koth"; // king of the lava islands: aim + click to bump rivals out
+  const isAim = isThrow || isShove; // games that use mouse-aim + click-to-attack
   const youId = useGame((s) => s.youId);
   const [tagHint, setTagHint] = useState<string | null>(null);
 
@@ -92,6 +95,11 @@ function MovementControls({ game }: { game: GameId }) {
         audio.sfx("throw");
         return;
       }
+      if (k === " " && isShove) {
+        net.input({ kind: "action", name: "shove" });
+        audio.sfx("whoosh");
+        return;
+      }
       if ((k === " " || k === "shift") && isSpike) {
         net.input({ kind: "action", name: "spike" });
         audio.sfx("whoosh");
@@ -118,11 +126,11 @@ function MovementControls({ game }: { game: GameId }) {
       window.removeEventListener("keyup", up);
       net.move(0, 0);
     };
-  }, [isThrow]);
+  }, [isThrow, isShove]);
 
-  // boomerang mouse aim + click throw
+  // mouse aim + click attack — boomerang/dodgeball THROW, king-of-lava SHOVE
   useEffect(() => {
-    if (!isThrow) return;
+    if (!isAim) return;
     const youId = useGame.getState().youId;
     let lastAim = 0;
     const canvas = document.querySelector(".gamecanvas") as HTMLCanvasElement | null;
@@ -149,8 +157,8 @@ function MovementControls({ game }: { game: GameId }) {
     const move = (e: MouseEvent) => aim(e.clientX, e.clientY);
     const click = (e: MouseEvent) => {
       aim(e.clientX, e.clientY);
-      net.input({ kind: "action", name: "throw" });
-      audio.sfx("throw");
+      net.input({ kind: "action", name: isShove ? "shove" : "throw" });
+      audio.sfx(isShove ? "whoosh" : "throw");
     };
     window.addEventListener("mousemove", move);
     canvas?.addEventListener("mousedown", click);
@@ -158,7 +166,7 @@ function MovementControls({ game }: { game: GameId }) {
       window.removeEventListener("mousemove", move);
       canvas?.removeEventListener("mousedown", click);
     };
-  }, [isThrow]);
+  }, [isAim, isShove]);
 
   return (
     <>
@@ -198,6 +206,19 @@ function MovementControls({ game }: { game: GameId }) {
           </button>
         </div>
       )}
+      {isShove && (
+        <div className="brawl-btns">
+          <button
+            className="rbtn shove"
+            onPointerDown={() => {
+              net.input({ kind: "action", name: "shove" });
+              audio.sfx("whoosh");
+            }}
+          >
+            👊<span>SHOVE</span>
+          </button>
+        </div>
+      )}
       <div className={`hint ${game === "tag" ? "tag" : ""}`}>
         {game === "tag" && tagHint
           ? tagHint
@@ -208,7 +229,7 @@ function MovementControls({ game }: { game: GameId }) {
               : game === "redlight"
                 ? "W / ↑ runs forward · A·D to dodge · FREEZE the instant it's RED"
                 : game === "koth"
-                  ? "WASD / Arrows to move · bump rivals into the lava!"
+                  ? "Move · aim with the mouse · CLICK / SPACE / 👊 to SHOVE rivals into the lava!"
                   : "WASD / Arrows to move"}
       </div>
       <style jsx>{`
@@ -249,6 +270,10 @@ function MovementControls({ game }: { game: GameId }) {
         .rbtn.spike {
           background: radial-gradient(circle at 30% 30%, #ffe082, #ffb300);
           box-shadow: 0 6px 0 #c87b00;
+        }
+        .rbtn.shove {
+          background: radial-gradient(circle at 30% 30%, #ffb74d, #ef5350);
+          box-shadow: 0 6px 0 #b71c1c;
         }
         .rbtn:active {
           transform: translateY(4px);
@@ -627,6 +652,7 @@ function GlassControls() {
 function MashControls({ label, action, color }: { label: string; action: "pull" | "jump"; color: string }) {
   const tap = () => {
     net.input({ kind: "tap" });
+    registerMashTap(); // instant local feedback (knot jerk + pulse) so mashing always feels like it landed
     audio.sfx(action === "jump" ? "jump" : "drum");
   };
   useEffect(() => {
@@ -740,6 +766,17 @@ function RollControls() {
     return () => window.removeEventListener("keydown", down);
   }, []);
 
+  // mouse/touch: clicking anywhere on the board rolls too (not just the button).
+  // The ROLL/fork buttons handle their own pointerdown; roll()'s guards keep
+  // this from double-firing or interrupting a fork choice.
+  useEffect(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas.gamecanvas");
+    if (!canvas) return;
+    const tap = () => roll();
+    canvas.addEventListener("pointerdown", tap);
+    return () => canvas.removeEventListener("pointerdown", tap);
+  }, []);
+
   // tick the local cooldown bar + watch our state (finished / at a fork)
   useEffect(() => {
     let raf = 0;
@@ -807,7 +844,7 @@ function RollControls() {
         {!finished && <span className="cdfill" style={{ transform: `scaleX(${1 - cd})` }} />}
       </button>
       <div className="hint">
-        {finished ? "🏁 SAFE at the top — you made it. Enjoy the view." : "SMASH to roll · 🪜 climb · 🌀/💀 a CHUTE makes you gamble · reach 🏁 before the clock!"}
+        {finished ? "🏁 SAFE at the top — you made it. Enjoy the view." : "CLICK anywhere or SPACE to roll · 🪜 climb · 🌀/💀 a CHUTE makes you gamble · reach 🏁 before the clock!"}
       </div>
       <ChuteStyles />
     </div>
@@ -968,6 +1005,7 @@ function RpsControls() {
   const [kept, setKept] = useState<string | null>(null);
   const [status, setStatus] = useState("pick");
   const [ties, setTies] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(0);
 
   // poll snapshot for phase + my duel
   useEffect(() => {
@@ -978,6 +1016,7 @@ function RpsControls() {
       const duel = (d.duels || []).find((x: any) => x.a === youId || x.b === youId);
       const ph = d.phase || "pick";
       setPhase(ph);
+      setTimeLeft(typeof d.timeLeft === "number" ? d.timeLeft : 0);
       if (duel) {
         const mine = duel.a === youId ? duel.aThrows : duel.bThrows;
         setMyThrows(mine || []);
@@ -1019,6 +1058,9 @@ function RpsControls() {
     net.input({ kind: "choose", value: t });
   }
 
+  const secs = Math.max(0, Math.ceil(timeLeft));
+  const urgent = timeLeft <= 2;
+
   return (
     <div className="rps-ctl">
       {phase === "pick" && (
@@ -1026,13 +1068,18 @@ function RpsControls() {
           {ties > 0 && <div className="rps-tie">🤝 TIE #{ties} — same throw, nobody’s out. Throw again!</div>}
           <div className="rps-title">{locked ? "Locked! Waiting for the drop…" : `Pick TWO throws (${picks.length}/2)`}</div>
           {!locked && (
-            <div className="rps-row">
-              {["R", "P", "S"].map((t) => (
-                <button key={t} className="rps-btn" onClick={() => pick(t)}>
-                  <span className="rps-ico">{THROW_ICON[t]}</span> {THROW_WORD[t]}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className={`rps-clock${urgent ? " urgent" : ""}`}>
+                ⏱ {secs}s — pick both in time or you FORFEIT
+              </div>
+              <div className="rps-row">
+                {["R", "P", "S"].map((t) => (
+                  <button key={t} className="rps-btn" onClick={() => pick(t)}>
+                    <span className="rps-ico">{THROW_ICON[t]}</span> {THROW_WORD[t]}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           {picks.length > 0 && <div className="rps-picks">You: {picks.map((p) => THROW_LABEL[p].split(" ")[0]).join("  ")}</div>}
         </>
@@ -1041,13 +1088,18 @@ function RpsControls() {
         <>
           <div className="rps-title">{kept ? "Locked in!" : "DROP one — keep your best hand!"}</div>
           {!kept && (
-            <div className="rps-row">
-              {myThrows.map((t, i) => (
-                <button key={i} className="rps-btn keep" onClick={() => keep(t)}>
-                  Keep <span className="rps-ico">{THROW_ICON[t]}</span> {THROW_WORD[t]}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className={`rps-clock${urgent ? " urgent" : ""}`}>
+                ⏱ {secs}s — drop one in time or you’re OUT
+              </div>
+              <div className="rps-row">
+                {myThrows.map((t, i) => (
+                  <button key={i} className="rps-btn keep" onClick={() => keep(t)}>
+                    Keep <span className="rps-ico">{THROW_ICON[t]}</span> {THROW_WORD[t]}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </>
       )}
@@ -1108,6 +1160,28 @@ function RpsControls() {
           font-weight: 800;
           color: var(--yellow);
         }
+        .rps-clock {
+          font-family: var(--font-display);
+          font-weight: 800;
+          font-size: 0.95rem;
+          letter-spacing: 0.02em;
+          color: var(--yellow);
+        }
+        .rps-clock.urgent {
+          color: #ff5252;
+          animation: rps-clock-pulse 0.5s ease-in-out infinite;
+        }
+        @keyframes rps-clock-pulse {
+          0%,
+          100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+          50% {
+            transform: scale(1.12);
+            opacity: 0.65;
+          }
+        }
         .rps-picks {
           font-size: 0.9rem;
           color: var(--ink-dim);
@@ -1117,23 +1191,44 @@ function RpsControls() {
   );
 }
 
-// ---------------- present / secret santa (guess the giver) ----------------
+// ---------------- present / secret santa (pick a mark, then guess the giver) ----------------
 function PresentControls() {
   const youId = useGame((s) => s.youId);
   const room = useGame((s) => s.room);
-  const [phase, setPhase] = useState("dark");
-  const [cands, setCands] = useState<string[]>([]);
-  const [picked, setPicked] = useState<string | null>(null);
+  const [phase, setPhase] = useState("gift");
+  const [slate, setSlate] = useState<string[]>([]); // giver's target options (gift phase)
+  const [cands, setCands] = useState<string[]>([]); // receiver's suspects (guess phase)
+  const [gaveTo, setGaveTo] = useState<string | null>(null); // who you gifted (guess phase, giver)
+  const [giftPick, setGiftPick] = useState<string | null>(null);
+  const [guessPick, setGuessPick] = useState<string | null>(null);
 
   useEffect(() => {
     const iv = setInterval(() => {
-      const cur = snapBuffer.cur;
+      const cur = snapBuffer.cur as any;
       if (!cur || cur.game !== "present") return;
       const d: any = cur.data || {};
-      setPhase(d.phase || "dark");
-      const ev = (d.events || []).find((e: any) => e.receiverId === youId);
-      setCands(ev?.candidateIds || []);
-      if (d.phase !== "guess") setPicked(null);
+      const sec: any = cur.secret || null; // private per-player payload (you're a giver)
+      const ph = d.phase || "gift";
+      setPhase(ph);
+      if (ph === "gift") {
+        setSlate(sec?.role === "giver" ? sec.targetSlate || [] : []);
+        if (sec?.targetId) setGiftPick(sec.targetId); // server confirmed the lock
+        setCands([]);
+        setGaveTo(null);
+        setGuessPick(null);
+      } else if (ph === "guess") {
+        const ev = (d.events || []).find((e: any) => e.receiverId === youId);
+        setCands(ev?.candidateIds || []);
+        setGaveTo(sec?.role === "giver" ? sec.gaveToId || null : null);
+        setSlate([]);
+        setGiftPick(null);
+      } else {
+        setSlate([]);
+        setCands([]);
+        setGaveTo(null);
+        setGiftPick(null);
+        setGuessPick(null);
+      }
     }, 120);
     return () => clearInterval(iv);
   }, [youId]);
@@ -1141,30 +1236,59 @@ function PresentControls() {
   const players = room?.players || [];
   const pinfo = (id: string) => players.find((p) => p.id === id);
   const variants = characterVariants(players);
+  const nameOf = (id: string | null) => (id ? pinfo(id)?.name || "???" : "???");
 
-  function choose(id: string) {
-    if (picked) return;
-    setPicked(id);
+  function giveTo(id: string) {
+    if (giftPick) return;
+    setGiftPick(id);
+    net.input({ kind: "choose", value: id });
+    audio.sfx("click");
+  }
+  function guess(id: string) {
+    if (guessPick) return;
+    setGuessPick(id);
     net.input({ kind: "choose", value: id });
     audio.sfx("click");
   }
 
-  const isReceiver = phase === "guess" && cands.length > 0;
+  const giving = phase === "gift" && slate.length > 0;
+  const receiving = phase === "guess" && cands.length > 0;
 
   return (
     <div className="present-ctl">
-      {isReceiver ? (
+      {giving ? (
         <>
-          <div className="present-title">{picked ? "Locked in! 🤞" : "🎁 Who gave you the gift?"}</div>
+          <div className="present-title">{giftPick ? "🤫 Gift planted — act natural." : "🎁 Slip your gift to…"}</div>
+          {!giftPick && <div className="present-sub">Pick your mark — they'll have to guess it was you.</div>}
+          <div className="present-row">
+            {slate.map((id) => {
+              const p = pinfo(id);
+              return (
+                <button
+                  key={id}
+                  className={`present-btn ${giftPick === id ? "sel" : ""}`}
+                  disabled={!!giftPick}
+                  onClick={() => giveTo(id)}
+                >
+                  <BlobAvatar characterId={p?.characterId || "avo"} size={46} variant={variants.get(id) ?? 0} />
+                  <span>{p?.name || "???"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : receiving ? (
+        <>
+          <div className="present-title">{guessPick ? "Locked in! 🤞" : "🎁 Who gave you the gift?"}</div>
           <div className="present-row">
             {cands.map((id) => {
               const p = pinfo(id);
               return (
                 <button
                   key={id}
-                  className={`present-btn ${picked === id ? "sel" : ""}`}
-                  disabled={!!picked}
-                  onClick={() => choose(id)}
+                  className={`present-btn ${guessPick === id ? "sel" : ""}`}
+                  disabled={!!guessPick}
+                  onClick={() => guess(id)}
                 >
                   <BlobAvatar characterId={p?.characterId || "avo"} size={46} variant={variants.get(id) ?? 0} />
                   <span>{p?.name || "???"}</span>
@@ -1175,11 +1299,15 @@ function PresentControls() {
         </>
       ) : (
         <div className="present-hint">
-          {phase === "dark"
-            ? "🌑 Lights out — a gift is being placed…"
-            : phase === "reveal"
-              ? "🎁 Unwrapping the truth…"
-              : "🎁 Watching the parlor…"}
+          {phase === "gift"
+            ? "🌑 Lights out — gifts are being chosen…"
+            : phase === "guess"
+              ? gaveTo
+                ? `🤞 Your gift's with ${nameOf(gaveTo)} — pray they don't catch you.`
+                : "🎁 The gifted are guessing their givers…"
+              : phase === "reveal"
+                ? "🎁 Unwrapping the truth…"
+                : "🎁 Watching the parlor…"}
         </div>
       )}
       <style jsx>{`
@@ -1207,6 +1335,13 @@ function PresentControls() {
           font-family: var(--font-display);
           font-weight: 700;
           color: var(--ink-dim);
+        }
+        .present-sub {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: 0.82rem;
+          color: var(--ink-dim);
+          margin-top: -4px;
         }
         .present-row {
           display: flex;

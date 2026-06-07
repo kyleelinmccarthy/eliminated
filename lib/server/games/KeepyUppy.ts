@@ -26,24 +26,24 @@ const BALLOON_R = 30;
 // vertical: a bat lifts the balloon up to -BAT_VY; gravity (ramping) + drag pull
 // it back down toward a slow terminal velocity, so it floats in a catchable band
 // rather than slamming the ceiling.
-const BAT_VY = 300; // upward speed imparted by a bat (a firm bump lofts it well up, not a limp tap)
-const BAT_PUSH = 80; // sideways shove along the contact normal
-const BAT_SCATTER = 95; // a light balloon never bounces cleanly — bats kick off at a slant
-const G0 = 175; // gravity accel at the start of the round
-const G1 = 540; // ...and by the buzzer (a fast fall punishes a mis-positioned juggler)
-const DRAG_Y = 2.0; // vertical air drag (per second) → terminal vy ≈ g / DRAG_Y (floaty, real-balloon slow)
-const DRAG_X = 0.65; // low horizontal drag — a light balloon keeps gliding sideways once it's moving
+const BAT_VY = 420; // upward speed imparted by a bat — a firm bump lofts the balloon a real way up
+const BAT_PUSH = 70; // sideways shove along the contact normal
+const BAT_SCATTER = 42; // a light balloon kicks off at a slight slant — a nudge, not a wild fling
+const G0 = 95; // gravity accel at the start of the round (gentle — the thing floats, it doesn't plummet)
+const G1 = 330; // ...and by the buzzer (the fall firms up to punish a mis-positioned juggler)
+const DRAG_Y = 1.0; // vertical air drag (per second) → terminal vy ≈ g / DRAG_Y; low enough that a bat actually carries, slow because gravity is gentle
+const DRAG_X = 0.95; // moderate horizontal drag — sideways drift settles into a lazy glide instead of building into wild swings
 
 // a wandering wind that grows over the round and shoves balloons toward the walls
-const WIND0 = 28;
-const WIND1 = 185;
+const WIND0 = 18;
+const WIND1 = 105;
 
 // FLUTTER — the heart of the realistic feel. A real air-filled balloon doesn't fall
 // straight: it rocks side to side as it sinks (vortex shedding / falling-leaf sway),
 // the swing widening the faster it drops. The upshot is the balloon almost never
 // lands where a flat-footed juggler is standing, so you're forever re-positioning.
-const FLUTTER0 = 230; // peak sideways sway accel early in the round
-const FLUTTER1 = 540; // ...and by the buzzer (the swings get violent)
+const FLUTTER0 = 80; // peak sideways sway accel early in the round (a lazy lean, not a jitter)
+const FLUTTER1 = 210; // ...and by the buzzer (the sway widens, but still a sway — not a seizure)
 
 const SPIKE_DUR = 0.32; // seconds the pin is "out" (contact pops instead of bats)
 const SPIKE_CD = 1.3; // cooldown between spikes
@@ -78,7 +78,7 @@ export class KeepyUppy extends ArenaGame {
     super(ctx);
     // mostly-helpful field: a 🛡️ shield is a balloon save, speed/tiny help you
     // chase a drifting balloon, giant turns you into a bigger paddle (but slower).
-    this.powerups = new PowerupField(ctx.rng, { every: 2.8, max: 5, goodWeight: 0.7, margin: 140 });
+    this.powerups = new PowerupField(ctx.rng, { every: 2.8, max: 5, goodWeight: 0.7, margin: 140, emit: (k, x, y, e) => this.boom(k, x, y, e) });
   }
 
   start(): void {
@@ -157,7 +157,7 @@ export class KeepyUppy extends ArenaGame {
     this.windY = Math.sin(this.windPhase * 1.7) * windAmp * 0.3;
     // structured side-to-side sway widens over the round (see FLUTTER above)
     this.flutterAmp = (FLUTTER0 + (FLUTTER1 - FLUTTER0) * p) * (0.8 + 0.4 * this.ctx.intensity);
-    this.turb = (24 + 120 * p) * (0.7 + 0.6 * this.ctx.intensity);
+    this.turb = (14 + 55 * p) * (0.7 + 0.6 * this.ctx.intensity);
 
     this.powerups.tick(dt);
 
@@ -171,8 +171,7 @@ export class KeepyUppy extends ArenaGame {
       // a jab lunges the blob forward a touch for game feel
       this.moveActor(a, dt, (d.spikeT || 0) > 0 ? SPIKE_LUNGE : 1);
       a.progress = (d.spikeT || 0) > 0 ? clamp(d.spikeT / SPIKE_DUR, 0, 1) : undefined;
-      const pk = this.powerups.collect(a);
-      if (pk) this.boom("pickup", a.x, a.y - 30, { color: "#b9f6ca" });
+      this.powerups.collect(a);
     }
 
     this.updateBalloons(dt);
@@ -194,7 +193,7 @@ export class KeepyUppy extends ArenaGame {
       // blob. This is what makes a real balloon so maddening to stand under.
       b.flutterPhase += b.flutterFreq * dt;
       const sink = Math.max(0, b.vy);
-      b.vx += Math.sin(b.flutterPhase) * this.flutterAmp * (0.3 + 0.7 * Math.min(1, sink / 240)) * dt;
+      b.vx += Math.sin(b.flutterPhase) * this.flutterAmp * (0.3 + 0.7 * Math.min(1, sink / 140)) * dt;
       // air drag → floaty terminal velocity (low on x, so sideways glide persists)
       b.vy *= Math.max(0, 1 - DRAG_Y * dt);
       b.vx *= Math.max(0, 1 - DRAG_X * dt);
@@ -245,7 +244,7 @@ export class KeepyUppy extends ArenaGame {
         // blob's own momentum (so you can steer it as you run) — but a light balloon
         // never bounces cleanly: the lift varies and a sideways scatter kicks it off
         // at a slant, restarting its tumble so you can't robotically chain bats in place.
-        b.vy = -BAT_VY * (0.82 + this.ctx.rng() * 0.36);
+        b.vy = -BAT_VY * (0.9 + this.ctx.rng() * 0.28);
         b.vx += nx * BAT_PUSH + a.vx * 0.3 + (this.ctx.rng() - 0.5) * BAT_SCATTER;
         b.flutterPhase = this.ctx.rng() * Math.PI * 2;
         this.boom("poof", b.x, b.y + BALLOON_R, { color: b.color, scale: 0.6 });

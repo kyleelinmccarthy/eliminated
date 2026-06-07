@@ -55,7 +55,7 @@ export function AccessoryPicker({ size = 52 }: { size?: number }) {
                   onClick={() => onTile(a.id)}
                 >
                   <div className="av">
-                    <div style={{ filter: isOwned ? "none" : "grayscale(1) brightness(0.6)" }}>
+                    <div style={{ filter: isOwned ? "none" : "grayscale(0.85) brightness(0.82)" }}>
                       <BlobAvatar characterId={characterId} size={size} accessories={[a.id]} />
                     </div>
                     {!isOwned && <span className="lock-glyph">🔒</span>}
@@ -141,11 +141,18 @@ export function AccessoryPicker({ size = 52 }: { size?: number }) {
         }
         .lock-glyph {
           position: absolute;
-          inset: 0;
+          bottom: -2px;
+          left: -2px;
+          font-size: 0.66rem;
+          line-height: 1;
+          background: var(--bg-2);
+          border: 1px solid var(--yellow);
+          border-radius: 999px;
+          width: 18px;
+          height: 18px;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 1.1rem;
           filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
           pointer-events: none;
         }

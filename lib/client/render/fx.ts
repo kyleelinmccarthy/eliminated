@@ -25,6 +25,7 @@ interface FloatText {
   max: number;
   text: string;
   color: string;
+  size?: number; // font px (world units); defaults to 22
 }
 
 const CONFETTI = ["#ff2e88", "#ffce3a", "#19d3bd", "#2bb39a", "#4cd9a0", "#ff9800"];
@@ -91,7 +92,9 @@ export class FxSystem {
         }
         break;
       case "pickup":
-        this.texts.push({ x, y, vy: -50, life: 1, max: 1, text: opts.text || "+", color });
+        // The powerup reveal — bigger, bolder and lingers a beat longer than a
+        // plain float so you can read what you just grabbed.
+        this.texts.push({ x, y, vy: -46, life: 1.5, max: 1.5, text: opts.text || "+", color, size: 28 * s });
         break;
       case "death":
         for (let i = 0; i < 18; i++) {
@@ -189,7 +192,7 @@ export class FxSystem {
       const a = Math.min(1, f.life / f.max);
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.font = "800 22px 'Baloo 2', sans-serif";
+      ctx.font = `800 ${f.size ?? 22}px 'Baloo 2', sans-serif`;
       ctx.textAlign = "center";
       ctx.lineWidth = 4;
       ctx.strokeStyle = "rgba(0,0,0,0.6)";

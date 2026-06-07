@@ -3,9 +3,10 @@
 // ArenaActor (see ArenaGame.moveActor / updateStatus). Mix of good and bad.
 
 import type { ArenaActor } from "./Minigame";
+import type { Effect } from "../../shared/types";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { dist, type Rng } from "../../shared/util";
-import { GOOD_POWERUPS, BAD_POWERUPS, type PowerupKind } from "../../shared/powerups";
+import { GOOD_POWERUPS, BAD_POWERUPS, pickupReveal, type PowerupKind } from "../../shared/powerups";
 
 export interface Pickup {
   id: number;
@@ -42,6 +43,11 @@ export interface PowerupFieldOpts {
   // usable area so bigger islands host more orbs. If this returns an empty list
   // there's no safe ground right now, so the spawn is skipped (never the lava).
   spawnRegions?: () => { x: number; y: number; r: number }[];
+  // Optional fx sink. When set, collect() announces each pickup right over the
+  // blob (icon + name, good/bad color) so it's obvious what you just grabbed —
+  // the reveal for an otherwise-identical mystery orb. Wire it to the game's
+  // boom() so the burst rides along in the snapshot.
+  emit?: (kind: Effect["kind"], x: number, y: number, extra?: Partial<Effect>) => void;
 }
 
 export class PowerupField {
@@ -130,6 +136,9 @@ export class PowerupField {
       if (dist(a.x, a.y, pk.x, pk.y) < PLAYER_RADIUS * a.scale + 18) {
         this.apply(a, pk.kind);
         this.pickups.splice(i, 1);
+        const r = pickupReveal(pk.kind);
+        this.opts.emit?.("spark", pk.x, pk.y, { color: r.color });
+        this.opts.emit?.("pickup", a.x, a.y - PLAYER_RADIUS * a.scale - 24, { text: r.text, color: r.color });
         return pk.kind;
       }
     }

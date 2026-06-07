@@ -31,7 +31,6 @@ interface Duel {
 const PICK_T = 4.5;
 const DROP_T = 3;
 const RESOLVE_T = 2.0;
-const MAX_TIES = 3;
 
 export class RpsMinusOne implements Minigame {
   id: GameId = "rpsminusone";
@@ -172,21 +171,30 @@ export class RpsMinusOne implements Minigame {
 
   private advancePhase() {
     if (this.phase === "pick") {
-      // ensure everyone has two throws (auto-random)
+      // Clock's up: anyone who didn't lock in TWO throws forfeits the duel.
       for (const d of this.duels) {
         if (d.status !== "pick") continue;
-        if (d.aThrows.length < 2) d.aThrows = [rnd(this.ctx), rnd(this.ctx)];
-        if (d.b && d.bThrows.length < 2) d.bThrows = [rnd(this.ctx), rnd(this.ctx)];
+        const aMissed = d.aThrows.length < 2;
+        const bMissed = !!d.b && d.bThrows.length < 2;
+        if (d.b && (aMissed || bMissed)) {
+          this.resolveForfeit(d, aMissed, bMissed);
+          continue;
+        }
         d.status = "drop";
       }
       this.phase = "drop";
       this.timer = DROP_T;
-      this.ctx.toast("Now DROP one. Commit. Regret later.", "info");
+      this.ctx.toast("Now DROP one — drop in time or forfeit. Commit. Regret later.", "info");
     } else if (this.phase === "drop") {
+      // Clock's up: anyone who didn't drop one forfeits the duel.
       for (const d of this.duels) {
         if (d.status !== "drop") continue;
-        if (!d.aKeep) d.aKeep = d.aThrows[Math.floor(this.ctx.rng() * d.aThrows.length)];
-        if (d.b && !d.bKeep) d.bKeep = d.bThrows[Math.floor(this.ctx.rng() * d.bThrows.length)];
+        const aMissed = !d.aKeep;
+        const bMissed = !!d.b && !d.bKeep;
+        if (d.b && (aMissed || bMissed)) {
+          this.resolveForfeit(d, aMissed, bMissed);
+          continue;
+        }
         d.status = "resolve";
       }
       this.phase = "resolve";
@@ -253,20 +261,15 @@ export class RpsMinusOne implements Minigame {
       }
       const r = cmp(d.aKeep!, d.bKeep!);
       if (r === 0) {
+        // A draw is a draw — nobody dies on a coin flip. Go to sudden death and
+        // keep throwing until someone is actually out-thrown.
         d.ties++;
-        if (d.ties >= MAX_TIES) {
-          // coin flip
-          const winner = this.ctx.rng() < 0.5 ? d.a : d.b;
-          this.settle(d, winner);
-        } else {
-          // replay
-          d.aThrows = [];
-          d.bThrows = [];
-          d.aKeep = null;
-          d.bKeep = null;
-          d.status = "pick";
-          this.fx.push({ kind: "ring", x: 0, y: 0, color: "#ffd54f", text: d.a });
-        }
+        d.aThrows = [];
+        d.bThrows = [];
+        d.aKeep = null;
+        d.bKeep = null;
+        d.status = "pick";
+        this.fx.push({ kind: "ring", x: 0, y: 0, color: "#ffd54f", text: d.a });
       } else {
         const winner = r > 0 ? d.a : d.b;
         this.settle(d, winner);
@@ -274,13 +277,35 @@ export class RpsMinusOne implements Minigame {
     }
   }
 
-  private settle(d: Duel, winner: string) {
+  private settle(d: Duel, winner: string, note = "Out-thrown!") {
     const loser = winner === d.a ? d.b! : d.a;
     d.winner = winner;
     d.status = "done";
-    this.elimOrder.push({ id: loser, note: "Out-thrown!" });
+    this.elimOrder.push({ id: loser, note });
     this.fx.push({ kind: "death", x: 0, y: 0, color: "#ff1744", text: loser });
     this.fx.push({ kind: "confetti", x: 0, y: 0, color: "#ffd54f", text: winner });
+  }
+
+  // Timeout = forfeit. Whoever didn't lock in their move when the clock hit zero
+  // loses by default. If BOTH froze, the bracket still needs a body to advance:
+  // coin-flip in a single-survivor finale, otherwise both are out. Only called
+  // for duels with a real opponent (d.b set).
+  private resolveForfeit(d: Duel, aMissed: boolean, bMissed: boolean): void {
+    if (aMissed && bMissed) {
+      if (this.ctx.forceSingleSurvivor) {
+        this.settle(d, this.ctx.rng() < 0.5 ? d.a : d.b!, "Forfeit — both froze, coin flip!");
+      } else {
+        d.status = "done";
+        d.winner = null;
+        for (const id of [d.a, d.b!]) {
+          this.elimOrder.push({ id, note: "Forfeit — froze up!" });
+          this.fx.push({ kind: "death", x: 0, y: 0, color: "#ff1744", text: id });
+        }
+      }
+      return;
+    }
+    // exactly one whiffed → their opponent advances for free
+    this.settle(d, aMissed ? d.b! : d.a, "Forfeit — too slow!");
   }
 
   snapshot(now: number): Snapshot {
@@ -343,8 +368,4 @@ export class RpsMinusOne implements Minigame {
       ranking.push({ playerId: e.id, survived: false, placement: place++, note: e.note });
     return { survivorIds: [...winners], ranking };
   }
-}
-
-function rnd(ctx: GameContext): Throw {
-  return THROWS[Math.floor(ctx.rng() * 3)];
 }

@@ -40,7 +40,7 @@ export class MusicalChairs extends ArenaGame {
 
   constructor(ctx: GameContext) {
     super(ctx);
-    this.powerups = new PowerupField(ctx.rng, { every: 2.2, max: 5, goodWeight: 0.55, margin: 120 });
+    this.powerups = new PowerupField(ctx.rng, { every: 2.2, max: 5, goodWeight: 0.55, margin: 120, emit: (k, x, y, e) => this.boom(k, x, y, e) });
   }
 
   start(): void {

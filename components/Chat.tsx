@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useGame, net } from "@/lib/client/net";
 
-export function Chat({ compact = false }: { compact?: boolean }) {
+export function Chat({ compact = false, height }: { compact?: boolean; height?: number | string }) {
   const chat = useGame((s) => s.chat);
   const youId = useGame((s) => s.youId);
   const [text, setText] = useState("");
@@ -21,7 +21,7 @@ export function Chat({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="chat" style={{ height: compact ? 160 : "100%" }}>
+    <div className="chat" style={{ height: height ?? (compact ? 160 : "100%") }}>
       <div className="chat-log scroll" ref={scrollRef}>
         {chat.length === 0 && <div className="dim tiny">Say something nice. It may be your last. 👋</div>}
         {chat.map((l, i) => (

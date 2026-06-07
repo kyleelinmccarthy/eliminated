@@ -34,7 +34,7 @@ export class Tag extends ArenaGame {
 
   constructor(ctx: GameContext) {
     super(ctx);
-    this.powerups = new PowerupField(ctx.rng, { every: 2.5, max: 6, goodWeight: 0.55 });
+    this.powerups = new PowerupField(ctx.rng, { every: 2.5, max: 6, goodWeight: 0.55, emit: (k, x, y, e) => this.boom(k, x, y, e) });
   }
 
   start(): void {

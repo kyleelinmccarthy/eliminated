@@ -17,7 +17,7 @@ import { GameControls } from "./GameControls";
 import { MuteButton } from "./MuteButton";
 import { FeedbackButton } from "./FeedbackButton";
 import { DeadPool } from "./DeadPool";
-import { Chat } from "./Chat";
+import { ChatDock } from "./ChatDock";
 
 export function GameStage() {
   const phase = useGame((s) => s.room?.phase);
@@ -128,6 +128,21 @@ function youAliveIn(snap: Snapshot | null, youId: string | null): boolean {
     const c = d.contestants.find((x: any) => x.id === youId);
     return c ? c.alive : false;
   }
+  if (d.duels) {
+    // RpsMinusOne bracket carries no `alive` flag: you're out the instant your
+    // duel resolves against you, and you stay out once you've dropped from the
+    // bracket (no longer in any duel and not sitting on a bye).
+    const myDuel = d.duels.find((x: any) => x.a === youId || x.b === youId);
+    if (myDuel) return !(myDuel.status === "done" && myDuel.winner !== youId);
+    return Array.isArray(d.byes) && d.byes.includes(youId);
+  }
+  if (d.pullers) {
+    // TugOfWar: eliminated when your team is dragged into the pit (decided at
+    // the buzzer via loserTeam) or you've let go of the rope entirely.
+    const me = d.pullers.find((p: any) => p.id === youId);
+    if (!me) return false;
+    return d.loserTeam == null || me.team !== d.loserTeam;
+  }
   return true;
 }
 
@@ -142,6 +157,7 @@ function PlayingView() {
   const goAtRef = useRef(0);
   const wasDown = useRef(false);
   const aliveThisRound = useRef(false);
+  const youDownRef = useRef(false); // last-pushed youDown, so we only re-render on a flip
   const lastSnapT = useRef(0);
   const prevLight = useRef<string>("");
   const prevPhase = useRef<string>("");
@@ -175,6 +191,7 @@ function PlayingView() {
     audio.stopMusic();
     wasDown.current = false;
     aliveThisRound.current = false;
+    youDownRef.current = false;
     prevAliveRef.current = new Map();
     deathAtRef.current = new Map();
     lastAnnounceRef.current = 0;
@@ -265,17 +282,27 @@ function PlayingView() {
         ctx.clearRect(0, 0, W, H);
       }
 
-      // HUD throttle
+      // Your own elimination should feel instant, so check it every frame and
+      // flip the overlay the moment you go down — don't let it ride the 120ms
+      // HUD throttle below (which drags further under a heavy frame load).
+      const downNow = !youAliveIn(cur, youId);
+      if (downNow !== youDownRef.current) {
+        youDownRef.current = downNow;
+        setHud((h) => ({ ...h, youDown: downNow }));
+      }
+
+      // HUD throttle — the numeric chrome (timer/alive count) can lag a few
+      // frames without anyone noticing.
       hudThrottle += dt;
       if (hudThrottle > 0.12) {
         hudThrottle = 0;
         const d: any = cur?.data || {};
-        setHud({
+        setHud((h) => ({
+          ...h,
           timeLeft: d.timeLeft ?? 0,
           alive: liveCount(cur),
           game: cur?.game ?? room?.currentGame,
-          youDown: !youAliveIn(cur, youId),
-        });
+        }));
       }
 
       raf = requestAnimationFrame(loop);
@@ -392,37 +419,13 @@ function PlayingView() {
 // works over the canvas; only shown to spectators (hud.youDown), never mid-play.
 function SpectatorChat({ number }: { number?: number }) {
   return (
-    <div className="spectate-dock">
-      <div className="spectate-head">
-        💀 Player {formatPlayerNumber(number)} eliminated — heckle from the great beyond…
-      </div>
-      <Chat compact />
-      <style jsx>{`
-        .spectate-dock {
-          position: absolute;
-          left: 12px;
-          bottom: 12px;
-          z-index: 20;
-          width: min(340px, 82vw);
-          background: var(--panel);
-          border: 2px solid var(--red);
-          border-radius: 16px;
-          padding: 12px;
-          backdrop-filter: blur(8px);
-          pointer-events: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .spectate-head {
-          font-family: var(--font-display);
-          font-weight: 700;
-          font-size: 0.82rem;
-          line-height: 1.25;
-          color: var(--red);
-        }
-      `}</style>
-    </div>
+    <ChatDock
+      title={`💀 Player ${formatPlayerNumber(number)} eliminated — heckle from the great beyond…`}
+      collapsedLabel="Heckle"
+      accent="var(--red)"
+      side="left"
+      defaultOpen
+    />
   );
 }
 

@@ -18,7 +18,8 @@ interface Puller {
 
 const WIN = 1.0;
 const TIME_LIMIT = 30;
-const TAP_IMPULSE = 1.0;
+const TAP_IMPULSE = 1.0; // force per bot tap
+const HUMAN_IMPULSE = 1.25; // a real player heaves harder than a bot, so your mashing carries a team — enough to overcome a one-player deficit, not enough to make headcount irrelevant
 const DECAY = 0.8;
 const SPEED = 0.05;
 const MAX_TAPS_PER_SEC = 14;
@@ -52,7 +53,7 @@ export class TugOfWar implements Minigame {
         team: i % 2,
         taps: 0,
         botAccum: 0,
-        botRate: 4.5 + this.ctx.rng() * 4,
+        botRate: 5 + this.ctx.rng() * 2, // 5–7 taps/sec: tight enough that a match isn't decided by the bot-rate roll alone
         recentTapAt: 0,
         tapWindow: 0,
       });
@@ -67,7 +68,8 @@ export class TugOfWar implements Minigame {
     if (p.tapWindow >= MAX_TAPS_PER_SEC) return; // anti-macro cap
     p.tapWindow++;
     p.taps++;
-    this.force[p.team] += TAP_IMPULSE;
+    // real players pull harder than bots — only humans reach onInput (bots tap in tick)
+    this.force[p.team] += p.isBot ? TAP_IMPULSE : HUMAN_IMPULSE;
   }
 
   tick(dt: number, _now: number): void {
@@ -93,11 +95,13 @@ export class TugOfWar implements Minigame {
       }
     }
 
-    // per-capita balance so headcount differences aren't decisive
+    // sqrt headcount scaling (Lanchester-style): more bodies still wins, but a
+    // 4v3 is a modest edge (√4 vs √3 ≈ 15%) rather than the steamroll full
+    // headcount would give — yet it's no longer worth *nothing* like 1/count was.
     const counts = [0, 0];
     for (const p of this.pullers.values()) counts[p.team]++;
-    const norm0 = counts[0] ? 1 / counts[0] : 0;
-    const norm1 = counts[1] ? 1 / counts[1] : 0;
+    const norm0 = counts[0] ? 1 / Math.sqrt(counts[0]) : 0;
+    const norm1 = counts[1] ? 1 / Math.sqrt(counts[1]) : 0;
     const net = this.force[0] * norm0 - this.force[1] * norm1;
     this.ropePos += net * SPEED * dt * 20;
     this.ropePos = Math.max(-1.4, Math.min(1.4, this.ropePos));

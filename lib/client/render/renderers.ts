@@ -4,6 +4,7 @@ import type { Snapshot, Actor } from "../../shared/types";
 import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { getMap } from "../../shared/maps";
 import { pullerStandX } from "../../shared/tug";
+import { mashFx } from "../mashFx";
 import { drawArena, drawBlob, drawShadow, drawProp, drawSword } from "./draw";
 import type { FxSystem } from "./fx";
 import { simonEmoji, simonByKey } from "../../shared/simon";
@@ -950,6 +951,15 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
   }
   const fallT = loserTeam >= 0 && tug.loseAt ? Math.max(0, (rc.time - tug.loseAt) / 1000) : 0;
 
+  // ---- local mash feedback: when YOU tap, jerk the knot toward your side and
+  // pulse your blob right away, before the next 20Hz snapshot reflects the pull.
+  // Otherwise the rope only shows *net* force and mashing feels like it does
+  // nothing whenever your side is losing the tug. ----
+  const live = !frozen && loserTeam < 0;
+  const mashPulse = live ? Math.max(0, 1 - (rc.time - mashFx.lastTapAt) / 200) : 0;
+  const myTeam = (d.pullers || []).find((p: any) => p.id === rc.youId)?.team;
+  const mySide = myTeam === 0 ? -1 : myTeam === 1 ? 1 : 0; // -1 left, +1 right, 0 = spectating
+
   // ---- canyon backdrop: two solid platforms with a deadly chasm between them ----
   const sky = ctx.createLinearGradient(0, 0, 0, H);
   sky.addColorStop(0, "#241b10");
@@ -999,7 +1009,7 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
 
   // ---- the rope + knot. The knot slides toward the WINNING team (no flag). ----
   const ropeY = groundY - 40;
-  const knotX = W / 2 - rp * (pitHalf - 26); // rp>0 → slides left toward team 0
+  const knotX = W / 2 - rp * (pitHalf - 26) + mySide * mashPulse * 8; // rp>0 → slides left toward team 0; +local tap jerk
   ctx.strokeStyle = "#caa15a";
   ctx.lineWidth = 10;
   ctx.lineCap = "round";
@@ -1067,6 +1077,15 @@ function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
         variant: rc.variants?.get(p.id), accessories: rc.accessories?.get(p.id),
         you: p.id === rc.youId,
       });
+      // your own per-tap pulse: an expanding ring that pops on each mash
+      if (p.id === rc.youId && mashPulse > 0 && anim !== "fall") {
+        ctx.globalAlpha = alpha * mashPulse * 0.8;
+        ctx.strokeStyle = "#ffe27a";
+        ctx.lineWidth = 3 + mashPulse * 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 34 + (1 - mashPulse) * 22, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.restore();
     });
   };
@@ -1140,6 +1159,15 @@ function renderRps(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Sna
   ctx.fillStyle = "#ffd54f";
   const phaseLabel = duel.status === "done" ? (duel.winner === (youAreA ? duel.a : duel.b) ? "YOU WIN!" : "Eliminated") : d.phase === "pick" ? "Pick TWO" : d.phase === "drop" ? "Drop ONE" : "Reveal!";
   ctx.fillText(phaseLabel, W / 2, H * 0.5 + 28);
+
+  // Live countdown under the phase label — stalling past zero forfeits the duel,
+  // so make the ticking clock impossible to miss (red once it gets tight).
+  if (duel.status !== "done" && (d.phase === "pick" || d.phase === "drop") && typeof d.timeLeft === "number") {
+    const secs = Math.max(0, Math.ceil(d.timeLeft));
+    ctx.font = "800 18px 'Baloo 2', sans-serif";
+    ctx.fillStyle = d.timeLeft <= 2 ? "#ff5252" : "#b9a7d6";
+    ctx.fillText(`⏱ ${secs}s · or forfeit`, W / 2, H * 0.5 + 52);
+  }
 
   // you (bottom)
   if (meChar) {
@@ -2211,15 +2239,15 @@ function renderParlor(
   ctx.translate(f.ox, f.oy);
   ctx.scale(f.s, f.s);
   const d = cur.data || {};
-  const phase: string = d.phase || "dark";
+  const phase: string = d.phase || "gift";
   const actors = interpActors(cur, prev, alpha);
   const evs: any[] = d.events || [];
   const receiverSet = new Set(evs.map((e) => e.receiverId));
 
-  // During the blackout the parlor is dim but still VISIBLE — you watch the gifts
-  // get slipped in (from the shadows, source unknown), instead of staring at a
-  // black screen. The reveal/guess phases are fully lit.
-  if (phase === "dark") {
+  // During the gift (blackout) phase the parlor is dim but still VISIBLE — you
+  // watch gifts being chosen in the gloom (givers stay secret) instead of staring
+  // at a black screen. The guess/reveal phases are fully lit.
+  if (phase === "gift") {
     ctx.fillStyle = "rgba(8,5,18,0.62)";
     ctx.fillRect(0, 0, ARENA_W, ARENA_H);
   }
@@ -2247,7 +2275,7 @@ function renderParlor(
       drawCoffin(ctx, a.x, a.y, 1, rc.time, coffinAge(rc, a.id));
       continue;
     }
-    const dim = phase === "dark" ? 0.55 : 1;
+    const dim = phase === "gift" ? 0.55 : 1;
     ctx.globalAlpha = dim;
     drawBlob(ctx, a.characterId, a.x, a.y, {
       r: PLAYER_RADIUS,
@@ -2260,7 +2288,7 @@ function renderParlor(
     });
     ctx.globalAlpha = 1;
     // a settled gift sits above each receiver during the guessing/reveal beats
-    if (receiverSet.has(a.id) && phase !== "dark") {
+    if (receiverSet.has(a.id) && phase !== "gift") {
       ctx.font = "30px serif";
       ctx.textAlign = "center";
       ctx.fillText("🎁", a.x, a.y - PLAYER_RADIUS * 1.9 + Math.sin(rc.time * 0.006) * 3);
@@ -2284,28 +2312,47 @@ function renderParlor(
     }
   }
 
-  // DARK phase: gifts fly in anonymously from the shadows to each receiver, so
-  // you watch the gifting HAPPEN (the giver stays a secret — that's the game).
-  if (phase === "dark") {
+  // GIFT phase: gifts are being CHOSEN in secret, so we can't show who's gifting
+  // whom (that's the whole game). A few presents just drift in the gloom for
+  // ambiance. If YOU are a giver who has locked a mark, your gift glides toward
+  // them as a private confirmation (rides the per-player `secret`, so no one else
+  // sees it).
+  if (phase === "gift") {
     const prog = Math.max(0, Math.min(1, d.darkProg ?? 0));
     const sx = ARENA_W / 2;
     const sy = ARENA_H / 2;
-    evs.forEach((e, i) => {
-      const r = actors.find((a) => a.id === e.receiverId);
-      if (!r) return;
-      // stagger each gift a touch so they arrive one after another, not all at once
-      const local = Math.max(0, Math.min(1, prog * (evs.length + 1) - i));
-      const ease = local * local * (3 - 2 * local); // smoothstep
-      const gx = lerp(sx, r.x, ease);
-      const gy = lerp(sy, r.y - PLAYER_RADIUS * 1.8, ease) - Math.sin(ease * Math.PI) * 40;
-      if (local <= 0) return;
+    const drift = Math.max(1, d.gifts || 1);
+    for (let i = 0; i < drift; i++) {
+      const t = rc.time * 0.0009 + i * 1.7;
+      const gx = sx + Math.cos(t) * (120 + i * 26);
+      const gy = sy + Math.sin(t * 1.3) * 70;
       ctx.save();
-      ctx.globalAlpha = 0.5 + 0.5 * Math.min(1, local * 2);
-      ctx.font = "28px serif";
+      ctx.globalAlpha = 0.26 + 0.18 * Math.sin(rc.time * 0.004 + i);
+      ctx.font = "26px serif";
       ctx.textAlign = "center";
       ctx.fillText("🎁", gx, gy);
       ctx.restore();
-    });
+    }
+    const sec: any = (cur as any).secret;
+    if (sec?.role === "giver" && sec.targetId) {
+      const r = actors.find((a) => a.id === sec.targetId);
+      if (r) {
+        const ease = prog * prog * (3 - 2 * prog);
+        const gx = lerp(sx, r.x, ease);
+        const gy = lerp(sy, r.y - PLAYER_RADIUS * 1.8, ease) - Math.sin(ease * Math.PI) * 40;
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,213,79,0.7)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, PLAYER_RADIUS + 10, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.92;
+        ctx.font = "30px serif";
+        ctx.textAlign = "center";
+        ctx.fillText("🎁", gx, gy);
+        ctx.restore();
+      }
+    }
   }
 
   if (phase === "reveal") {
@@ -2324,9 +2371,19 @@ function renderParlor(
 
   ctx.textAlign = "center";
   ctx.font = "800 26px 'Baloo 2', sans-serif";
-  if (phase === "dark") {
-    ctx.fillStyle = "#cbb6ff";
-    ctx.fillText("🌑 Lights out — gifts are being slipped in the dark…", W / 2, 56);
+  if (phase === "gift") {
+    const sec: any = (cur as any).secret;
+    if (sec?.role === "giver") {
+      ctx.fillStyle = "#ffd54f";
+      ctx.fillText(
+        sec.targetId ? "🤫 Gift planted — act natural." : "🎁 Pick your mark — slip them a gift!",
+        W / 2,
+        56,
+      );
+    } else {
+      ctx.fillStyle = "#cbb6ff";
+      ctx.fillText("🌑 Lights out — gifts are being chosen in the dark…", W / 2, 56);
+    }
   } else if (phase === "guess") {
     const mine = evs.find((e) => e.receiverId === rc.youId);
     ctx.fillStyle = mine ? "#ffd54f" : "#b9a7d6";

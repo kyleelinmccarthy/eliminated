@@ -185,6 +185,30 @@ export function drawBlob(
 
   drawShadow(ctx, x, y, baseR);
 
+  // "you" ground ring — a pulsing yellow marker at your own blob's feet so you
+  // can always pick yourself out of a crowd. Drawn over the shadow but under the
+  // body, as a flat ellipse so it reads as sitting on the ground (pairs with the
+  // bobbing arrow above). Local-player-only: each client sees just their own.
+  if (opts.you && !dead) {
+    const ry = y + baseR * 0.86;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.005);
+    ctx.save();
+    // expanding halo that fades as it grows
+    ctx.globalAlpha = 0.5 * (1 - pulse);
+    ctx.strokeStyle = "#ffd54f";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(x, ry, baseR * (1.05 + pulse * 0.6), baseR * (0.42 + pulse * 0.24), 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // steady inner ring
+    ctx.globalAlpha = 0.95;
+    ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.ellipse(x, ry, baseR * 1.0, baseR * 0.4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // bounce / squash
   let bob = 0;
   let squashX = 1;
@@ -1063,8 +1087,12 @@ function drawNeckwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) 
     roundRectPath(ctx, -r * 0.1, by - r * 0.12, r * 0.2, r * 0.24, r * 0.05);
     ctx.fill();
   } else {
-    // bandana: a knot to one side with two tails, plus a kerchief over the chest
-    const ny = r * 0.42;
+    // bandana: knotted at the left collar with two tails, the kerchief swept
+    // diagonally toward the opposite hip rather than as a centred triangle. A
+    // centred point landed dead under the chin and read as sitting on the face
+    // of squat, low-faced shapes (bulb/pear/mushroom, mouth ~0.5r); the off-centre
+    // drape clears the facial midline and reads as a jaunty side-tie.
+    const ny = r * 0.44;
     ctx.fillStyle = acc.c1;
     ctx.beginPath();
     ctx.moveTo(-r * 0.5, ny);
@@ -1074,15 +1102,15 @@ function drawNeckwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) 
     ctx.fill();
     ctx.beginPath();
     ctx.moveTo(-r * 0.48, ny - r * 0.04);
-    ctx.lineTo(r * 0.48, ny - r * 0.04);
-    ctx.lineTo(0, ny + r * 0.52);
+    ctx.lineTo(r * 0.46, ny - r * 0.04);
+    ctx.lineTo(r * 0.2, ny + r * 0.5); // point swept off-centre toward the hip
     ctx.closePath();
     ctx.fill();
     ctx.beginPath();
     ctx.arc(-r * 0.5, ny, r * 0.12, 0, Math.PI * 2); // knot
     ctx.fill();
-    ctx.fillStyle = acc.c2 ?? "#fff"; // polka dots
-    for (const [px, py] of [[-0.16, 0.1], [0.16, 0.08], [0, 0.3]]) {
+    ctx.fillStyle = acc.c2 ?? "#fff"; // polka dots trailing the diagonal drape
+    for (const [px, py] of [[-0.16, 0.12], [0.04, 0.16], [0.18, 0.36]]) {
       ctx.beginPath();
       ctx.arc(px * r, ny + py * r, r * 0.05, 0, Math.PI * 2);
       ctx.fill();
@@ -1096,16 +1124,19 @@ function drawEarwear(ctx: CanvasRenderingContext2D, acc: Accessory, r: number) {
   ctx.save();
   ctx.translate(r * 0.62, -r * 0.46);
   if (acc.kind === "feather") {
+    // Plume grows straight UP from the ear anchor; nothing dips below it, so the
+    // lower edge never crosses the eyes on high-face shapes (berry/tall) or
+    // wide-set / frog eyes the way the old down-reaching blade did.
     ctx.rotate(0.5);
     ctx.fillStyle = acc.c1;
     ctx.beginPath();
-    ctx.ellipse(0, -r * 0.3, r * 0.16, r * 0.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, -r * 0.46, r * 0.15, r * 0.4, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = acc.c2 ?? "#fff";
     ctx.lineWidth = r * 0.04;
     ctx.beginPath();
-    ctx.moveTo(0, -r * 0.72);
-    ctx.lineTo(0, r * 0.06);
+    ctx.moveTo(0, -r * 0.86); // tip
+    ctx.lineTo(0, -r * 0.02); // bare quill, ending at the ear (never below it)
     ctx.stroke();
   } else if (acc.kind === "banana" || acc.kind === "spotbanana") {
     // a banana tucked behind the ear (crescent with browned tips)

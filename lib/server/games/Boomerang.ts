@@ -6,6 +6,17 @@ import type { GameInput } from "../../shared/protocol";
 
 type Power = "speed" | "bigrang" | "multishot" | "shield" | "tiny" | "magnet";
 const POWERS: Power[] = ["speed", "bigrang", "multishot", "shield", "tiny", "magnet"];
+// Reveal text for the pickup moment — these orbs are all blessings (green), but
+// you still want to know which one you snagged. (Boomerang has its own power set,
+// separate from the shared good/bad powerup catalog.)
+const POWER_FX: Record<Power, string> = {
+  speed: "⚡ Zoomies!",
+  bigrang: "🪃 Big Rang!",
+  multishot: "🎯 Multishot!",
+  shield: "🛡️ Bubble!",
+  tiny: "🔻 Shrink!",
+  magnet: "🧲 Magnet!",
+};
 
 interface Rang {
   id: number;
@@ -59,14 +70,34 @@ export class Boomerang extends ArenaGame {
     this.target = this.ctx.forceSingleSurvivor
       ? 1
       : Math.max(1, Math.round(ps.length * (1 - 0.5 * this.ctx.intensity)));
+    // Spread players across the arena in a jittered grid instead of a tight
+    // ring that all faces inward. The circle funneled everyone into a center
+    // crossfire and wiped out too many in round one; a 2D scatter keeps the
+    // opening throws from converging and gives room to dodge the first volley.
+    const cx = ARENA_W / 2;
+    const cy = ARENA_H / 2;
+    const marginX = 170;
+    const marginY = 150;
+    const innerW = ARENA_W - marginX * 2;
+    const innerH = ARENA_H - marginY * 2;
+    const cols = Math.max(
+      1,
+      Math.min(ps.length, Math.round(Math.sqrt(ps.length * (innerW / innerH)))),
+    );
+    const rows = Math.ceil(ps.length / cols);
+    const cellW = innerW / cols;
+    const cellH = innerH / rows;
     ps.forEach((p, i) => {
-      const ang = (i / ps.length) * Math.PI * 2;
-      const a = this.addActor(
-        p,
-        ARENA_W / 2 + Math.cos(ang) * 320,
-        ARENA_H / 2 + Math.sin(ang) * 220,
-      );
-      a.data!.aim = ang + Math.PI;
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      // center the (possibly short) final row so stragglers aren't bunched left
+      const rowCount = Math.min(cols, ps.length - row * cols);
+      const rowOffset = (cols - rowCount) * cellW * 0.5;
+      const x =
+        marginX + rowOffset + (col + 0.5) * cellW + (this.ctx.rng() - 0.5) * cellW * 0.4;
+      const y = marginY + (row + 0.5) * cellH + (this.ctx.rng() - 0.5) * cellH * 0.4;
+      const a = this.addActor(p, x, y);
+      a.data!.aim = Math.atan2(y - cy, x - cx); // face outward, away from the pack
       a.data!.dashCd = 0;
       a.data!.dashT = 0;
       a.data!.invuln = 0;
@@ -185,8 +216,8 @@ export class Boomerang extends ArenaGame {
         if (dist(a.x, a.y, pk.x, pk.y) < PLAYER_RADIUS + 18) {
           this.applyPower(a, pk.kind);
           this.pickups.splice(i, 1);
-          this.boom("pickup", a.x, a.y - 36, { text: pk.kind.toUpperCase(), color: "#fff" });
-          this.boom("spark", pk.x, pk.y, { color: "#ffd54f" });
+          this.boom("pickup", a.x, a.y - 40, { text: POWER_FX[pk.kind], color: "#7dffa0" });
+          this.boom("spark", pk.x, pk.y, { color: "#7dffa0" });
         }
       }
     }

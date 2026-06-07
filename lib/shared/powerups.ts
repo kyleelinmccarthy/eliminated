@@ -35,6 +35,15 @@ export const ALL_POWERUPS = Object.keys(POWERUPS) as PowerupKind[];
 export const GOOD_POWERUPS = ALL_POWERUPS.filter((k) => POWERUPS[k].good);
 export const BAD_POWERUPS = ALL_POWERUPS.filter((k) => !POWERUPS[k].good);
 
+// The "find out what you grabbed" payoff. Orbs are a deliberate mystery on the
+// ground (see the renderer — identical "?" on every one); this is the reveal
+// that floats over your blob the instant you collect one: the icon + name, in
+// green for a blessing or red for a curse so good/bad reads at a glance.
+export function pickupReveal(kind: PowerupKind): { text: string; color: string } {
+  const m = POWERUPS[kind];
+  return { text: `${m.icon} ${m.label}!`, color: m.good ? "#7dffa0" : "#ff7a7a" };
+}
+
 // Quick icon lookup for renderers (kept in sync with the catalog above).
 export const POWERUP_ICONS: Record<string, string> = Object.fromEntries(
   ALL_POWERUPS.map((k) => [k, POWERUPS[k].icon]),

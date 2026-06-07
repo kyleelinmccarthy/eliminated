@@ -10,7 +10,7 @@ import { characterVariants } from "@/lib/shared/characters";
 import { BlobAvatar } from "./BlobAvatar";
 import { CharacterPicker } from "./CharacterPicker";
 import { AccessoryPicker } from "./AccessoryPicker";
-import { Chat } from "./Chat";
+import { ChatDock } from "./ChatDock";
 import { MuteButton } from "./MuteButton";
 
 const EMOTES = ["👋", "😂", "😎", "😱", "💀", "❤️", "🔥", "🤡"];
@@ -152,6 +152,17 @@ export function Lobby() {
             ))}
           </div>
 
+          <div className="reactions">
+            <label className="tag">React (they can't hear you scream — but they'll see this)</label>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {EMOTES.map((e) => (
+                <button key={e} className="emote" onClick={() => (audio.sfx("blip"), net.emote(e))}>
+                  {e}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="char-change">
             <label className="tag">Change your blob</label>
             <CharacterPicker value={characterId} onPick={(id) => net.setCharacter(id)} size={52} />
@@ -160,14 +171,6 @@ export function Lobby() {
           <div className="char-change">
             <label className="tag">Dress your blob 💅</label>
             <AccessoryPicker size={52} />
-          </div>
-
-          <div className="row wrap" style={{ gap: 6 }}>
-            {EMOTES.map((e) => (
-              <button key={e} className="emote" onClick={() => (audio.sfx("blip"), net.emote(e))}>
-                {e}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -268,11 +271,10 @@ export function Lobby() {
             </div>
           </div>
 
-          <div className="panel" style={{ padding: 14 }}>
-            <Chat compact />
-          </div>
         </div>
       </div>
+
+      <ChatDock title="Lobby chat — last words welcome" collapsedLabel="Chat" accent="var(--pink)" side="right" />
 
       <style jsx>{`
         .topbar {
@@ -497,6 +499,19 @@ export function Lobby() {
           display: flex;
           flex-direction: column;
           gap: 4px;
+        }
+        .reactions {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          background: rgba(255, 79, 154, 0.08);
+          border: 1px solid var(--line);
+          border-radius: 14px;
+          padding: 10px 12px;
+        }
+        .reactions .emote {
+          font-size: 1.4rem;
+          padding: 5px 10px;
         }
         @media (max-width: 860px) {
           .lobby-grid {
