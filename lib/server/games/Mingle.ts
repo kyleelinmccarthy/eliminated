@@ -24,6 +24,11 @@ export class Mingle extends ArenaGame {
   start(): void {
     const ps = this.ctx.players;
     this.startCount = ps.length;
+    // A dash to scramble for a room once the number drops — but on a longer
+    // cooldown so it's one committed lunge per round, not a way to dart between
+    // rooms freely. While the music plays the platform clamp eats it anyway (you
+    // still can't pre-camp a room).
+    this.dashCd = 1.8;
     // circular rooms arranged evenly in a ring around the central platform
     this.rooms = mingleRooms();
     // everyone STARTS on the spinning platform (music's playing), packed into a
@@ -96,11 +101,17 @@ export class Mingle extends ArenaGame {
 
     for (const a of this.actors.values()) {
       if (!a.alive) continue;
+      this.tickDashCd(a, dt);
+      if (a.data!.wantDash) {
+        a.data!.wantDash = 0;
+        this.tryDash(a);
+      }
       if (a.isBot) this.botThink(a);
-      this.moveActor(a, dt);
+      if (!this.stepDash(a, dt)) this.moveActor(a, dt);
       // While the music's still playing nobody may leave the platform — you can
       // shuffle around on it, but you can't creep out and pre-camp a room before
-      // the number actually drops. The instant it does (mingle), this lifts.
+      // the number actually drops (a dash just slams into the rim and clamps). The
+      // instant it does (mingle), this lifts.
       if (this.phase === "wander") this.confineToPlatform(a);
     }
 

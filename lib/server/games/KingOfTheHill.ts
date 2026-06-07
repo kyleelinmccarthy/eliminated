@@ -107,10 +107,12 @@ export class KingOfTheHill extends ArenaGame {
     this.ctx.toast("The floor is LAVA! Hop between the sinking islands — aim and CLICK to SHOVE rivals into the magma!", "bad");
   }
 
-  // mouse aim sets our facing; click / SPACE / button fires a shove next tick
+  // mouse aim sets our facing; click / SPACE / 👊 fires a shove next tick; SHIFT / 💨
+  // dashes — a quick island-to-island hop or an escape from a rival's shove.
   protected onAction(a: ArenaActor, input: GameInput): void {
     if (input.kind === "aim") a.data!.aim = input.angle;
     else if (input.kind === "action" && input.name === "shove") a.data!.wantShove = 1;
+    else if (input.kind === "action" && input.name === "dash") a.data!.wantDash = 1;
   }
 
   private aliveActors() {
@@ -144,16 +146,24 @@ export class KingOfTheHill extends ArenaGame {
       if (!a.alive) continue;
       this.updateStatus(a, dt);
       if ((a.data!.shoveCd || 0) > 0) a.data!.shoveCd = Math.max(0, a.data!.shoveCd! - dt);
+      this.tickDashCd(a, dt);
       if (a.isBot) this.botThink(a);
 
-      // fire a queued shove BEFORE moving so the self-lunge starts this very tick
+      // fire a queued shove/dash BEFORE moving so the burst starts this very tick
       if (a.data!.wantShove) {
         a.data!.wantShove = 0;
         this.doShove(a);
       }
+      if (a.data!.wantDash) {
+        a.data!.wantDash = 0;
+        this.tryDash(a);
+      }
 
-      // mid-lunge we override the joystick with the locked-in shove direction
-      if ((a.data!.shoveT || 0) > 0) {
+      // movement priority: an active dash overrides all, then a shove self-lunge,
+      // otherwise a normal step.
+      if (this.stepDash(a, dt)) {
+        // dash burst handled
+      } else if ((a.data!.shoveT || 0) > 0) {
         a.data!.shoveT! -= dt;
         a.inDx = a.data!.shoveDx!;
         a.inDy = a.data!.shoveDy!;

@@ -99,6 +99,9 @@ export class PropHunt extends ArenaGame {
     // The blade only lands a handful of times — never enough to clear the room.
     this.maxSwings = clamp(Math.round(this.hidersTotal * (0.4 + this.ctx.intensity * 0.4)), 2, Math.max(2, this.hidersTotal));
     this.swings = this.maxSwings;
+    // Dash is a high-cost emergency only: a long cooldown so it's a one-shot bolt,
+    // not a way to skitter around the room (and it blows a hider's cover, see tick).
+    this.dashCd = 2.4;
     // The Seeker's body-count quota: ALWAYS at least 1 (find nobody and the
     // organizers box the Seeker too), scaling up a little late in a series. Never
     // more than they could possibly hit, and never the whole room.
@@ -121,6 +124,8 @@ export class PropHunt extends ArenaGame {
       // hiders scurry into position; the Seeker is frozen, "counting".
       for (const a of this.actors.values()) {
         if (!a.alive) continue;
+        a.data!.wantDash = 0; // no dashing while everyone's still getting into place
+        this.tickDashCd(a, dt);
         if (a.it) {
           a.inDx = 0;
           a.inDy = 0;
@@ -140,15 +145,23 @@ export class PropHunt extends ArenaGame {
 
     for (const a of this.actors.values()) {
       if (!a.alive) continue;
+      this.tickDashCd(a, dt);
+      if (a.data!.wantDash) {
+        a.data!.wantDash = 0;
+        this.tryDash(a);
+      }
       if (a.it) {
         if (a.isBot) this.botSeek(a, dt);
-        this.moveActor(a, dt, SEEKER_SPEED);
+        if (!this.stepDash(a, dt)) this.moveActor(a, dt, SEEKER_SPEED);
         continue;
       }
-      // hider: crawl, and track whether they're visibly fidgeting (a tell)
+      // hider: crawl, and track whether they're visibly fidgeting (a tell). A dash
+      // is a big burst of movement, so it always counts as a fidget — bolting blows
+      // your cover.
       if (a.isBot) this.botHide(a);
-      this.moveActor(a, dt, CREEP_SPEED);
-      const moving = Math.hypot(a.vx, a.vy) > MOVE_EPS;
+      const dashing = this.stepDash(a, dt);
+      if (!dashing) this.moveActor(a, dt, CREEP_SPEED);
+      const moving = dashing || Math.hypot(a.vx, a.vy) > MOVE_EPS;
       a.data!.exposed = moving ? EXPOSE_TIME : Math.max(0, (a.data!.exposed || 0) - dt);
     }
 
@@ -161,6 +174,10 @@ export class PropHunt extends ArenaGame {
   protected onAction(a: ArenaActor, input: GameInput): void {
     if (input.kind !== "action") return;
     if (input.name === "swing") this.trySwing(a);
+    // SHIFT / 💨 dash: the seeker uses it to close for a swing; a hider can panic-
+    // bolt with it — but a dash is movement, and movement makes a prop twitch
+    // (exposed), so bailing this way paints a target on your back.
+    else if (input.name === "dash") a.data!.wantDash = 1;
   }
 
   // The nearest still-intact prop (hider or decoy) within the blade's reach.

@@ -31,6 +31,9 @@ function MovementControls({ game }: { game: GameId }) {
   const isSpike = game === "keepyuppy";
   const isShove = game === "koth"; // king of the lava islands: aim + click to bump rivals out
   const isAim = isThrow || isShove; // games that use mouse-aim + click-to-attack
+  // Every free-roam game dashes on SHIFT / 💨 for consistency — except Red Light,
+  // where a burst of speed would just get you caught moving on red.
+  const canDash = game !== "redlight";
   const youId = useGame((s) => s.youId);
   const [tagHint, setTagHint] = useState<string | null>(null);
 
@@ -49,12 +52,12 @@ function MovementControls({ game }: { game: GameId }) {
       if (freezer) {
         setTagHint("🔵 YOU'RE A FREEZER — chase the 🩷 pink runners and bump them to freeze. Catch at least ONE or you're eliminated!");
       } else if (me.frozen) {
-        setTagHint("🧊 FROZEN! Hold still — a pink teammate can run over and touch you to thaw you back in.");
+        setTagHint("🧊 FROZEN! Hold still — a pink teammate can run into you to thaw you back in.");
       } else {
         setTagHint(
           d.deepFreeze
-            ? "🩷 DEEP FREEZE — thawing's off! Just don't let a glowing 🔵 freezer touch you."
-            : "🩷 YOU RUN — dodge the glowing 🔵 freezers. Touch a frozen 🧊 teammate to THAW them.",
+            ? "🩷 DEEP FREEZE — thawing's off! Just don't let a glowing 🔵 freezer bump into you."
+            : "🩷 YOU RUN — dodge the glowing 🔵 freezers. Run into a frozen 🧊 teammate to THAW them.",
         );
       }
     }, 150);
@@ -90,22 +93,26 @@ function MovementControls({ game }: { game: GameId }) {
     const down = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
-      if (k === " " && isThrow) {
-        net.input({ kind: "action", name: "throw" });
-        audio.sfx("throw");
-        return;
+      // SPACE = the game's primary action (throw / shove / spike)
+      if (k === " ") {
+        if (isThrow) {
+          net.input({ kind: "action", name: "throw" });
+          audio.sfx("throw");
+          return;
+        }
+        if (isShove) {
+          net.input({ kind: "action", name: "shove" });
+          audio.sfx("whoosh");
+          return;
+        }
+        if (isSpike) {
+          net.input({ kind: "action", name: "spike" });
+          audio.sfx("whoosh");
+          return;
+        }
       }
-      if (k === " " && isShove) {
-        net.input({ kind: "action", name: "shove" });
-        audio.sfx("whoosh");
-        return;
-      }
-      if ((k === " " || k === "shift") && isSpike) {
-        net.input({ kind: "action", name: "spike" });
-        audio.sfx("whoosh");
-        return;
-      }
-      if (k === "shift" && isThrow) {
+      // SHIFT = dash, the same across every free-roam game
+      if (k === "shift" && canDash) {
         net.input({ kind: "action", name: "dash" });
         audio.sfx("whoosh");
         return;
@@ -126,7 +133,7 @@ function MovementControls({ game }: { game: GameId }) {
       window.removeEventListener("keyup", up);
       net.move(0, 0);
     };
-  }, [isThrow, isShove]);
+  }, [game]);
 
   // mouse aim + click attack — boomerang/dodgeball THROW, king-of-lava SHOVE
   useEffect(() => {
@@ -168,6 +175,19 @@ function MovementControls({ game }: { game: GameId }) {
     };
   }, [isAim, isShove]);
 
+  // Keepy Uppy has no aim — a CLICK is just a SPIKE (same as SPACE), so popping a
+  // rival's balloon works the way throwing does in the brawl games.
+  useEffect(() => {
+    if (!isSpike) return;
+    const canvas = document.querySelector(".gamecanvas") as HTMLCanvasElement | null;
+    const click = () => {
+      net.input({ kind: "action", name: "spike" });
+      audio.sfx("whoosh");
+    };
+    canvas?.addEventListener("mousedown", click);
+    return () => canvas?.removeEventListener("mousedown", click);
+  }, [isSpike]);
+
   return (
     <>
       <Joystick onVec={(dx, dy) => net.move(dx, dy)} />
@@ -204,6 +224,15 @@ function MovementControls({ game }: { game: GameId }) {
           >
             📌<span>SPIKE</span>
           </button>
+          <button
+            className="rbtn dash"
+            onPointerDown={() => {
+              net.input({ kind: "action", name: "dash" });
+              audio.sfx("whoosh");
+            }}
+          >
+            💨<span>DASH</span>
+          </button>
         </div>
       )}
       {isShove && (
@@ -217,20 +246,43 @@ function MovementControls({ game }: { game: GameId }) {
           >
             👊<span>SHOVE</span>
           </button>
+          <button
+            className="rbtn dash"
+            onPointerDown={() => {
+              net.input({ kind: "action", name: "dash" });
+              audio.sfx("whoosh");
+            }}
+          >
+            💨<span>DASH</span>
+          </button>
+        </div>
+      )}
+      {/* pure-movement games (tag / mingle / musical chairs) get a standalone dash */}
+      {canDash && !isThrow && !isSpike && !isShove && (
+        <div className="brawl-btns">
+          <button
+            className="rbtn dash"
+            onPointerDown={() => {
+              net.input({ kind: "action", name: "dash" });
+              audio.sfx("whoosh");
+            }}
+          >
+            💨<span>DASH</span>
+          </button>
         </div>
       )}
       <div className={`hint ${game === "tag" ? "tag" : ""}`}>
         {game === "tag" && tagHint
-          ? tagHint
+          ? `${tagHint} · SHIFT to dash`
           : isThrow
             ? "WASD move · mouse aim · click/SPACE throw · SHIFT dash"
             : isSpike
-              ? "WASD move under your balloon to bat it · SPACE / SPIKE to pop theirs"
+              ? "WASD move under your balloon to bat it · SPACE / CLICK to pop theirs · SHIFT dash"
               : game === "redlight"
                 ? "W / ↑ runs forward · A·D to dodge · FREEZE the instant it's RED"
                 : game === "koth"
-                  ? "Move · aim with the mouse · CLICK / SPACE / 👊 to SHOVE rivals into the lava!"
-                  : "WASD / Arrows to move"}
+                  ? "Move · aim with the mouse · CLICK / SPACE / 👊 to SHOVE · SHIFT to dash between islands!"
+                  : "WASD / Arrows to move · SHIFT to dash"}
       </div>
       <style jsx>{`
         .brawl-btns {
@@ -329,8 +381,14 @@ function ProphuntControls() {
     net.input({ kind: "action", name: "swing" });
     audio.sfx("whoosh");
   };
+  // SHIFT / 💨 dash — the seeker lunges to close for a swing; a hider can panic-bolt,
+  // but the burst makes them twitch (the server only honors it during the hunt).
+  const dash = () => {
+    net.input({ kind: "action", name: "dash" });
+    audio.sfx("whoosh");
+  };
 
-  // keyboard: WASD/arrows move for everyone; SPACE swings for the seeker
+  // keyboard: WASD/arrows move for everyone; SPACE swings for the seeker; SHIFT dashes
   useEffect(() => {
     const keys = new Set<string>();
     const sendMove = () => {
@@ -347,6 +405,10 @@ function ProphuntControls() {
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
       if (k === " ") {
         swing();
+        return;
+      }
+      if (k === "shift") {
+        dash();
         return;
       }
       if (!keys.has(k)) {
@@ -379,25 +441,36 @@ function ProphuntControls() {
   const hunting = st.phase === "hunt";
   const hint = seeker
     ? hunting
-      ? `🗡️ ${st.swings} swing${st.swings === 1 ? "" : "s"} left · found ${st.found}/${st.quota} — skewer ${st.quota} or YOU'RE boxed!`
+      ? `🗡️ ${st.swings} swing${st.swings === 1 ? "" : "s"} left · found ${st.found}/${st.quota} — skewer ${st.quota} or YOU'RE boxed! (SHIFT to dash in)`
       : "🙈 Counting… the blade comes out soon. (Find at least 1 or you're out too.)"
     : hunting
-      ? "🫥 HOLD STILL — moving makes you twitch (and twitching gets you found)"
+      ? "🫥 HOLD STILL — moving (even a SHIFT dash) makes you twitch, and twitching gets you found"
       : "🏃 Find a lookalike prop and freeze next to it!";
 
   return (
     <>
       <Joystick onVec={(dx, dy) => net.move(dx, dy)} />
-      {seeker && hunting && (
+      {hunting && (
         <div className="brawl-btns">
+          {seeker && (
+            <button
+              className="rbtn swing"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                swing();
+              }}
+            >
+              🗡️<span>SWING</span>
+            </button>
+          )}
           <button
-            className="rbtn swing"
+            className="rbtn dash"
             onPointerDown={(e) => {
               e.preventDefault();
-              swing();
+              dash();
             }}
           >
-            🗡️<span>SWING</span>
+            💨<span>DASH</span>
           </button>
         </div>
       )}
@@ -407,6 +480,9 @@ function ProphuntControls() {
           position: absolute;
           right: 22px;
           bottom: 34px;
+          display: flex;
+          gap: 14px;
+          align-items: flex-end;
         }
         .rbtn {
           width: 92px;
@@ -427,6 +503,12 @@ function ProphuntControls() {
         .rbtn span {
           font-size: 0.7rem;
           font-weight: 800;
+        }
+        .rbtn.dash {
+          background: radial-gradient(circle at 30% 30%, #7defff, #00bcd4);
+          box-shadow: 0 6px 0 #00838f;
+          width: 78px;
+          height: 78px;
         }
         .rbtn:active {
           transform: translateY(4px);
@@ -1155,11 +1237,11 @@ function RpsControls() {
           background: rgba(31, 227, 194, 0.18);
           border-color: var(--teal);
         }
-        /* Hands thrown sideways (a real RPS throw), rotated 90° — never flipped
-           upside-down. */
+        /* Hands thrown sideways (a real RPS throw), rotated -90° (counter-
+           clockwise) so they land right-side-up, not upside-down. */
         .rps-ico {
           display: inline-block;
-          transform: rotate(90deg);
+          transform: rotate(-90deg);
           font-size: 1.3rem;
           vertical-align: middle;
         }

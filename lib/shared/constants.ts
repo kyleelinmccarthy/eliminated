@@ -17,7 +17,7 @@ export const CURRENCY = "Marbles";
 export const CURRENCY_ICON = "◍";
 
 export const DEFAULT_CONFIG = {
-  mode: "hardcore" as const,
+  mode: "casual" as const,
   rounds: "mystery" as const,
   allowedGames: [] as never[],
   botFill: true,

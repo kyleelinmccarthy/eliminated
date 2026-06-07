@@ -45,6 +45,10 @@ export class MusicalChairs extends ArenaGame {
 
   start(): void {
     this.startCount = this.ctx.players.length;
+    // A dash to dive for a chair the instant the music dies — but a long cooldown
+    // (≈ one per scramble) keeps it a single committed lunge, so where you were
+    // standing when it stopped still matters.
+    this.dashCd = 1.8;
     this.ctx.players.forEach((p, i) => {
       const ang = (i / this.ctx.players.length) * Math.PI * 2;
       this.addActor(p, ARENA_W / 2 + Math.cos(ang) * 330, ARENA_H / 2 + Math.sin(ang) * 250);
@@ -166,8 +170,15 @@ export class MusicalChairs extends ArenaGame {
     for (const a of this.actors.values()) {
       if (!a.alive) continue;
       this.updateStatus(a, dt);
+      this.tickDashCd(a, dt);
+      if (a.data!.wantDash) {
+        a.data!.wantDash = 0;
+        this.tryDash(a);
+      }
       if (a.isBot) this.botThink(a, dt);
-      this.moveActor(a, dt, this.phase === "scramble" ? 1.12 : 1);
+      // dash overrides the walk; a dash counts as moving, so it never trips the
+      // keep-moving rule during the music
+      if (!this.stepDash(a, dt)) this.moveActor(a, dt, this.phase === "scramble" ? 1.12 : 1);
       if (this.phase === "music") {
         this.powerups.collect(a);
         this.keepMoving(a, dt);

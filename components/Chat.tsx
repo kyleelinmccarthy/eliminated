@@ -23,7 +23,7 @@ export function Chat({ compact = false, height }: { compact?: boolean; height?: 
   return (
     <div className="chat" style={{ height: height ?? (compact ? 160 : "100%") }}>
       <div className="chat-log scroll" ref={scrollRef}>
-        {chat.length === 0 && <div className="dim tiny">Say something nice. It may be your last. 👋</div>}
+        {chat.length === 0 && <div className="dim tiny">Say something nice. Could be your last words. 👋</div>}
         {chat.map((l, i) => (
           <div key={i} className={`chat-line ${l.system ? "sys" : ""}`}>
             {l.system ? (

@@ -66,6 +66,7 @@ export function Lobby() {
   const characterId = useGame((s) => s.characterId);
   const [copied, setCopied] = useState(false);
   const [charOpen, setCharOpen] = useState(false);
+  const [accOpen, setAccOpen] = useState(false);
 
   const isHost = youId === room.hostId;
   const me = room.players.find((p) => p.id === youId);
@@ -75,6 +76,7 @@ export function Lobby() {
   // accent rims so two players on the same blob aren't a confusing pair
   const variants = characterVariants(room.players);
   const currentChar = CHARACTERS.find((c) => c.id === characterId);
+  const wornCount = me?.accessories?.length ?? 0;
 
   function patch(p: any) {
     audio.sfx("click");
@@ -187,8 +189,21 @@ export function Lobby() {
           </div>
 
           <div className="char-change">
-            <label className="tag">Dress your blob 💅</label>
-            <AccessoryPicker size={52} />
+            <button
+              className="collapse-head"
+              onClick={() => (audio.sfx("blip"), setAccOpen((o) => !o))}
+              aria-expanded={accOpen}
+            >
+              <span className="tag">Dress your blob 💅</span>
+              {!accOpen && (
+                <span className="collapse-current">
+                  <BlobAvatar characterId={characterId} size={26} accessories={me?.accessories} />
+                  {wornCount > 0 ? `${wornCount} worn` : "au naturel"}
+                </span>
+              )}
+              <span className={`chev ${accOpen ? "open" : ""}`}>▾</span>
+            </button>
+            {accOpen && <AccessoryPicker size={52} />}
           </div>
         </div>
 
@@ -201,11 +216,11 @@ export function Lobby() {
             <div className="cfg-row">
               <label className="tag">Death Rule</label>
               <div className="seg">
-                <button className={room.config.mode === "hardcore" ? "on" : ""} disabled={!isHost} onClick={() => patch({ mode: "hardcore" as SeriesMode })}>
-                  💀 Hardcore
-                </button>
                 <button className={room.config.mode === "casual" ? "on" : ""} disabled={!isHost} onClick={() => patch({ mode: "casual" as SeriesMode })}>
                   🩹 Casual
+                </button>
+                <button className={room.config.mode === "hardcore" ? "on" : ""} disabled={!isHost} onClick={() => patch({ mode: "hardcore" as SeriesMode })}>
+                  💀 Hardcore
                 </button>
               </div>
               <div className="tiny dim">
@@ -237,16 +252,16 @@ export function Lobby() {
                   💥 Friendly fire
                 </button>
                 <button
-                  className={`toggle ${room.config.nightMode ? "on" : ""}`}
+                  className={`toggle ${room.config.nightMode ? "on" : ""} ${room.config.mode !== "hardcore" ? "locked" : ""}`}
                   disabled={!isHost || room.config.mode !== "hardcore"}
                   onClick={() => patch({ nightMode: !room.config.nightMode })}
-                  title="Hardcore only: random rounds go dark, so you can't see it coming."
+                  title={room.config.mode !== "hardcore" ? "Locked — Night mode only works under the Hardcore death rule." : "Hardcore only: random rounds go dark, so you can't see it coming."}
                 >
                   🌙 Night mode
                 </button>
               </div>
               {room.config.mode !== "hardcore" ? (
-                <div className="tiny dim">🌙 Night mode needs the Hardcore death rule. Go big or stay alive.</div>
+                <div className="tiny lock-note">🔒 Night mode is locked in Casual — switch the Death Rule to 💀 Hardcore to kill the lights.</div>
               ) : room.config.nightMode ? (
                 <div className="tiny dim">🌙 Random rounds go pitch black — grab 🔦 lanterns to watch it happen in detail.</div>
               ) : null}
@@ -485,6 +500,16 @@ export function Lobby() {
         .chip:disabled {
           opacity: 0.7;
           cursor: default;
+        }
+        .toggle.locked {
+          opacity: 0.45;
+          border-style: dashed;
+          text-decoration: line-through;
+          text-decoration-color: var(--red);
+        }
+        .lock-note {
+          color: var(--yellow);
+          opacity: 0.85;
         }
         .game-chips {
           display: flex;

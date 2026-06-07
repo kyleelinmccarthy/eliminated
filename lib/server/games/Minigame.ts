@@ -148,8 +148,14 @@ export abstract class ArenaGame implements Minigame {
     }
   }
 
-  // games override to handle non-move inputs (throw, dash, etc.)
-  protected onAction(_a: ArenaActor, _input: GameInput): void {}
+  // Games override to handle their own non-move inputs (throw, spike, shove…).
+  // The base handles DASH for every arena game: shift / 💨 queues a dash that the
+  // game's tick consumes (tryDash + stepDash), so the dodge/juke feels identical
+  // across the whole roster. Overriders include the same `dash` case (or call
+  // super.onAction); Boomerang/Dodgeball predate this and keep their own version.
+  protected onAction(a: ArenaActor, input: GameInput): void {
+    if (input.kind === "action" && input.name === "dash" && a.data) a.data.wantDash = 1;
+  }
 
   // Default mid-game removal for arena games: kill the actor in place with a
   // death poof, and clear role flags (it / frozen) so a quitter doesn't leave
@@ -236,6 +242,63 @@ export abstract class ArenaGame implements Minigame {
       a.anim = "idle";
     }
     if (a.flash > 0) a.flash = Math.max(0, a.flash - dt * 3);
+  }
+
+  // ---- Shared DASH (shift / 💨) ----------------------------------------------
+  // A brief burst of speed in the movement direction (or facing/aim when standing
+  // still), gated by a cooldown — the same dodge/juke across every arena game.
+  // Games tune the feel by overriding these three fields; the constraint games
+  // (tag/mingle/musical chairs/prop hunt) lengthen `dashCd` so it stays an
+  // occasional escape rather than a free teleport. Boomerang/Dodgeball predate
+  // this and keep their own private copy, so they're untouched.
+  protected dashDur = 0.18; // seconds the burst lasts
+  protected dashCd = 1.4; // seconds between dashes
+  protected dashSpeed = 3.1; // moveActor speed multiplier during the burst
+
+  // Kick off a dash if it's off cooldown and not already mid-dash. Direction comes
+  // from the live movement intent, falling back to aim/facing when stationary.
+  protected tryDash(a: ArenaActor): boolean {
+    const d = a.data;
+    if (!d || (d.dashCd || 0) > 0 || (d.dashT || 0) > 0) return false;
+    let dx = a.inDx;
+    let dy = a.inDy;
+    if (Math.hypot(dx, dy) < 0.1) {
+      const ang = d.aim ?? a.facing;
+      dx = Math.cos(ang);
+      dy = Math.sin(ang);
+    }
+    const m = Math.hypot(dx, dy) || 1;
+    d.dashDx = dx / m;
+    d.dashDy = dy / m;
+    d.dashT = this.dashDur;
+    d.dashCd = this.dashCd;
+    this.boom("poof", a.x, a.y, { color: "#b2ebf2" });
+    return true;
+  }
+
+  // Tick the dash cooldown — call once per alive actor per tick.
+  protected tickDashCd(a: ArenaActor, dt: number): void {
+    const d = a.data;
+    if (d && (d.dashCd || 0) > 0) d.dashCd = Math.max(0, (d.dashCd as number) - dt);
+  }
+
+  // If a dash is active, override the joystick with the locked-in burst vector and
+  // move at dashSpeed (returns true so the caller skips its own movement). When NOT
+  // dashing it moves nothing and returns false, so each game keeps its normal
+  // movement (creep / lunge / scramble speed) in the `if (!stepDash(...))` else.
+  protected stepDash(a: ArenaActor, dt: number): boolean {
+    const d = a.data!;
+    if ((d.dashT || 0) > 0) {
+      d.dashT = Math.max(0, (d.dashT as number) - dt);
+      a.inDx = d.dashDx!;
+      a.inDy = d.dashDy!;
+      this.moveActor(a, dt, this.dashSpeed);
+      a.anim = "run";
+      a.ghost = true; // a brief blur so the dash reads (no i-frames in these games)
+      return true;
+    }
+    if (a.ghost) a.ghost = false; // clear the dash blur the tick after it ends
+    return false;
   }
 
   protected toActor(a: ArenaActor): Actor {

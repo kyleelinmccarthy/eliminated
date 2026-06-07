@@ -1208,15 +1208,16 @@ function drawHands(ctx: CanvasRenderingContext2D, cx: number, cy: number, throws
   const spread = shown.length > 1 ? 60 : 0;
   shown.forEach((th, i) => {
     const x = cx + (i - (shown.length - 1) / 2) * spread;
-    // Tip each hand onto its side (90° clockwise, never upside-down) so the
-    // canvas throw mirrors a real RPS toss — same as the control buttons.
+    // Tip each hand onto its side (-90°, counter-clockwise — clockwise lands
+    // them upside-down) so the canvas throw mirrors a real RPS toss, matching
+    // the control buttons.
     ctx.save();
     ctx.font = "44px serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.globalAlpha = 1;
     ctx.translate(x, cy);
-    ctx.rotate(Math.PI / 2);
+    ctx.rotate(-Math.PI / 2);
     ctx.fillText(HAND[th] || "?", 0, 0);
     ctx.restore();
   });
@@ -1584,6 +1585,8 @@ const board = {
   prevAlive: new Map<string, boolean>(),
   label: new Map<string, { text: string; color: string; at: number }>(),
   lastT: 0,
+  lastDie: 0, // most-recent rolled face on the board, latched for the margin die
+  lastDieAt: 0, // client time (ms) it last changed, for the roll pop
 };
 // Chute fork outcome → colour / icon. -1 unknown, 0 = back to start, 1 = abyss.
 const CHUTE_COL: Record<number, string> = { [-1]: "#b06be6", 0: "#26c6da", 1: "#ff4d6d" };
@@ -1717,6 +1720,12 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
       else if (c.square === 0 && prevSq > 0) board.label.set(c.id, { text: "BACK TO START 🌀", color: "#26c6da", at: rc.time });
       else if (delta > 6) board.label.set(c.id, { text: `CLIMB +${delta} 🪜`, color: "#69f0ae", at: rc.time });
     }
+    // latch the freshest rolled face for the margin die (per-pawn faces only
+    // blink for ~0.45s, so the standalone die keeps the dice mechanic on screen)
+    if (c.die > 0 && c.die !== board.lastDie) {
+      board.lastDie = c.die;
+      board.lastDieAt = rc.time;
+    }
     board.prevSq.set(c.id, c.square);
     board.prevAlive.set(c.id, c.alive);
   }
@@ -1839,6 +1848,11 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
 
     drawPopLabel(ctx, c.id, x, y, pawnR, rc.time);
   }
+
+  // a big communal die parked in the empty side margin so the dice mechanic is
+  // always legible — the per-pawn faces only blink, and the silent how-to preview
+  // has no ROLL button or "you" to prompt it
+  drawRollIndicator(ctx, bx, by, size, rc.time);
 }
 
 // A short-lived floating label above a pawn (ladder climb / reset / safe / death).
@@ -1967,6 +1981,39 @@ function drawDie(ctx: CanvasRenderingContext2D, x: number, y: number, s: number,
     ctx.arc(px * s * 0.26, py * s * 0.26, pr, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
+}
+
+// A big communal die parked in the board's side margin. It latches the most-recent
+// roll (board.lastDie) so the dice are always on screen, tumbling with a little pop
+// each time a fresh face comes up. Skipped until the first roll, or if the margin
+// is too thin to fit it cleanly.
+function drawRollIndicator(ctx: CanvasRenderingContext2D, bx: number, by: number, size: number, time: number) {
+  if (board.lastDie <= 0) return; // nothing rolled yet (a frame or two at most)
+  const s = Math.min(bx * 0.5, size * 0.22, 108);
+  if (s < 28 || bx < s * 1.2) return; // margin too thin — bail rather than crowd the board
+  const cx = bx / 2; // centered in the left margin
+  const cy = by + size * 0.42;
+  const pop = Math.max(0, 1 - (time - board.lastDieAt) / 240); // 1 → 0 over the 240ms after a roll
+  const bob = Math.sin(time * 0.004) * (s * 0.03);
+  ctx.save();
+  ctx.translate(cx, cy + bob);
+  // soft glow so it lifts off the dark backdrop, brighter on a fresh roll
+  const glow = ctx.createRadialGradient(0, 0, s * 0.2, 0, 0, s * 0.95);
+  glow.addColorStop(0, `rgba(255,213,79,${0.18 + pop * 0.22})`);
+  glow.addColorStop(1, "rgba(255,213,79,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 0, s * 0.95, 0, Math.PI * 2);
+  ctx.fill();
+  drawDie(ctx, 0, -s * 0.12, s * (1 + pop * 0.18), board.lastDie);
+  // name the mechanic for first-time viewers
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.font = `800 ${Math.round(s * 0.2)}px 'Baloo 2', sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("🎲 ROLL TO CLIMB", 0, s * 0.62);
+  ctx.textBaseline = "alphabetic";
   ctx.restore();
 }
 

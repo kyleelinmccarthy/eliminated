@@ -54,7 +54,7 @@ export const CHANGELOG: PatchEntry[] = [
     title: "Night Mode & The Finale",
     notes: [
       "Introduced Night Mode: random Hardcore rounds now happen in total darkness, so you can fail to see what kills you. You're welcome.",
-      "Every gauntlet now ends on King of Lava Island. The floor is lava, the island shrinks, and dignity is not provided.",
+      "Every gauntlet now ends on a proper finale — a last decisive round, and in Hardcore it doesn't stop until exactly one blob is left standing. Dignity, in any case, is not provided.",
       "Lantern 🔦 powerup added to extend your field of view, and therefore your suffering.",
     ],
   },

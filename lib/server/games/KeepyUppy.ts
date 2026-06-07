@@ -117,11 +117,14 @@ export class KeepyUppy extends ArenaGame {
   }
 
   protected onAction(a: ArenaActor, input: GameInput): void {
-    // SPIKE — accept a few action names + a generic tap so any control surface works
+    // SPACE / CLICK / tap = SPIKE (pop a rival's balloon); SHIFT = DASH (reposition
+    // under your own drifting balloon, or close on a rival to spike). Splitting the
+    // two off shift — which used to double as spike — matches the brawl controls.
     if (input.kind === "tap") {
       this.trySpike(a);
-    } else if (input.kind === "action" && ["spike", "throw", "dash"].includes(input.name)) {
-      this.trySpike(a);
+    } else if (input.kind === "action") {
+      if (input.name === "dash") a.data!.wantDash = 1;
+      else if (input.name === "spike" || input.name === "throw") this.trySpike(a);
     }
   }
 
@@ -167,9 +170,14 @@ export class KeepyUppy extends ArenaGame {
       const d = a.data!;
       if ((d.spikeT || 0) > 0) d.spikeT = Math.max(0, d.spikeT - dt);
       if ((d.spikeCd || 0) > 0) d.spikeCd = Math.max(0, d.spikeCd - dt);
+      this.tickDashCd(a, dt);
+      if (d.wantDash) {
+        d.wantDash = 0;
+        this.tryDash(a);
+      }
       if (a.isBot) this.botThink(a, dt);
-      // a jab lunges the blob forward a touch for game feel
-      this.moveActor(a, dt, (d.spikeT || 0) > 0 ? SPIKE_LUNGE : 1);
+      // a dash burst overrides everything; otherwise a jab lunges the blob forward a touch
+      if (!this.stepDash(a, dt)) this.moveActor(a, dt, (d.spikeT || 0) > 0 ? SPIKE_LUNGE : 1);
       a.progress = (d.spikeT || 0) > 0 ? clamp(d.spikeT / SPIKE_DUR, 0, 1) : undefined;
       this.powerups.collect(a);
     }

@@ -12,6 +12,7 @@ import { AccessoryPicker } from "./AccessoryPicker";
 import { BlobAvatar } from "./BlobAvatar";
 import { GamePreview } from "./GamePreview";
 import { GameIcon } from "./GameIcon";
+import { ControlsReveal } from "./ControlsReveal";
 import { MuteButton } from "./MuteButton";
 import { FeedbackButton } from "./FeedbackButton";
 
@@ -274,7 +275,7 @@ export function Landing() {
                 </div>
                 <GamePreview gameId={id} />
                 <p className="tiny" style={{ margin: "6px 0" }}>{g.rules}</p>
-                <p className="tiny dim" style={{ margin: 0 }}>🎮 {g.controlText}</p>
+                <ControlsReveal text={g.controlText} />
               </div>
             );
           })}

@@ -41,6 +41,12 @@ export class Tag extends ArenaGame {
     // Freeze Tag ran frantically fast — drop the chase speed below the shared
     // default so freezing and thawing read as deliberate moves, not a blur.
     this.speed = 175;
+    // Dash here is a juke, not a getaway: a slower, longer-cooldown burst so the
+    // deliberate chase still reads (a freezer can lunge to tag; a runner can break
+    // away once in a while) without turning into dash-spam. No i-frames, so a dash
+    // can't phase you through a freezer's touch.
+    this.dashSpeed = 2.6;
+    this.dashCd = 2.0;
     const ps = shuffle(this.ctx.rng, this.ctx.players);
     ps.forEach((p, i) => {
       const team = i % 2; // 0 = blue freezer, 1 = pink runner
@@ -61,7 +67,7 @@ export class Tag extends ArenaGame {
       a.data!.roam = this.ctx.rng() * Math.PI * 2; // own juke/roam phase, so the pack fans out
     });
     this.deepFreezeLen = 3.5 + this.ctx.intensity * 4.5; // 3.5..8s
-    this.ctx.toast("🔵 BLUE freezes the 🩷 PINK runners. Pink: touch a frozen friend to THAW them!", "info");
+    this.ctx.toast("🔵 BLUE freezes the 🩷 PINK runners. Pink: run into a frozen friend to THAW them!", "info");
   }
 
   private aliveActors() {
@@ -85,14 +91,21 @@ export class Tag extends ArenaGame {
       this.updateStatus(a, dt);
       if ((a.data!.freezeCd || 0) > 0) a.data!.freezeCd = Math.max(0, a.data!.freezeCd - dt);
       if ((a.data!.immune || 0) > 0) a.data!.immune = Math.max(0, a.data!.immune - dt);
+      this.tickDashCd(a, dt);
       if (a.frozen) {
         a.inDx = 0;
         a.inDy = 0;
         a.anim = "fall";
-        continue;
+        a.data!.dashT = 0; // cancel any in-progress dash — you froze solid mid-bolt
+        a.ghost = false;
+        continue; // frozen solid — no dashing out of it
+      }
+      if (a.data!.wantDash) {
+        a.data!.wantDash = 0;
+        this.tryDash(a);
       }
       if (a.isBot) this.botThink(a);
-      this.moveActor(a, dt);
+      if (!this.stepDash(a, dt)) this.moveActor(a, dt);
       this.powerups.collect(a);
     }
 
