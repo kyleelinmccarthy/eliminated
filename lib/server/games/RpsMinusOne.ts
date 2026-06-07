@@ -25,9 +25,12 @@ interface Duel {
   ties: number;
 }
 
-const PICK_T = 6.5;
-const DROP_T = 5;
-const RESOLVE_T = 2.6;
+// Brisker than before (it dragged): the pick/drop windows are caps, not waits —
+// once everyone (humans + instant-filling bots) has locked in, the round snaps
+// forward immediately (see phaseComplete / tick).
+const PICK_T = 4.5;
+const DROP_T = 3;
+const RESOLVE_T = 2.0;
 const MAX_TIES = 3;
 
 export class RpsMinusOne implements Minigame {
@@ -113,7 +116,26 @@ export class RpsMinusOne implements Minigame {
       if (d.b) this.botFor(d, d.b, dt);
     }
 
-    if (this.timer <= 0) this.advancePhase();
+    // Resolve runs on its display timer; pick/drop snap forward the instant
+    // everyone has committed so nobody waits on a dead clock.
+    if (this.phase === "resolve") {
+      if (this.timer <= 0) this.advancePhase();
+    } else if (this.timer <= 0 || this.phaseComplete()) {
+      this.advancePhase();
+    }
+  }
+
+  // Whether every still-live duel has all the input the current phase needs.
+  private phaseComplete(): boolean {
+    if (this.phase === "pick") {
+      return this.duels.every(
+        (d) => d.status !== "pick" || (d.aThrows.length >= 2 && (!d.b || d.bThrows.length >= 2)),
+      );
+    }
+    if (this.phase === "drop") {
+      return this.duels.every((d) => d.status !== "drop" || (!!d.aKeep && (!d.b || !!d.bKeep)));
+    }
+    return false;
   }
 
   private botFor(d: Duel, id: string, _dt: number) {
@@ -286,6 +308,7 @@ export class RpsMinusOne implements Minigame {
           bKeep: this.phase === "resolve" ? d.bKeep : null,
           status: d.status,
           winner: d.winner,
+          ties: d.ties,
         })),
       },
       fx,

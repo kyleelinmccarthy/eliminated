@@ -64,7 +64,7 @@ export class KeepyUppy extends ArenaGame {
     super(ctx);
     // mostly-helpful field: a 🛡️ shield is a balloon save, speed/tiny help you
     // chase a drifting balloon, giant turns you into a bigger paddle (but slower).
-    this.powerups = new PowerupField(ctx.rng, { every: 4, max: 3, goodWeight: 0.72, margin: 140 });
+    this.powerups = new PowerupField(ctx.rng, { every: 2.8, max: 5, goodWeight: 0.7, margin: 140 });
   }
 
   start(): void {

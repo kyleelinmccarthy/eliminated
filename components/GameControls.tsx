@@ -34,10 +34,25 @@ function MovementControls({ game }: { game: GameId }) {
     const sendMove = () => {
       let dx = 0;
       let dy = 0;
-      if (keys.has("w") || keys.has("arrowup")) dy -= 1;
-      if (keys.has("s") || keys.has("arrowdown")) dy += 1;
-      if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
-      if (keys.has("d") || keys.has("arrowright")) dx += 1;
+      const up = keys.has("w") || keys.has("arrowup");
+      const down = keys.has("s") || keys.has("arrowdown");
+      const left = keys.has("a") || keys.has("arrowleft");
+      const right = keys.has("d") || keys.has("arrowright");
+      if (game === "redlight") {
+        // Red Light is a horizontal sprint toward the Doll on the RIGHT. Players
+        // intuitively press W to "go forward", so rotate the d-pad 90°: W/↑ runs
+        // toward the finish, S/↓ backs off, A/D nudge between lanes. (The joystick
+        // stays screen-aligned — dragging right already heads for the finish.)
+        if (up) dx += 1;
+        if (down) dx -= 1;
+        if (left) dy -= 1;
+        if (right) dy += 1;
+      } else {
+        if (up) dy -= 1;
+        if (down) dy += 1;
+        if (left) dx -= 1;
+        if (right) dx += 1;
+      }
       net.move(dx, dy);
     };
     const down = (e: KeyboardEvent) => {
@@ -159,7 +174,11 @@ function MovementControls({ game }: { game: GameId }) {
           ? "WASD move · mouse aim · click/SPACE throw · SHIFT dash"
           : isSpike
             ? "WASD move under your balloon to bat it · SPACE / SPIKE to pop theirs"
-            : "WASD / Arrows to move"}
+            : game === "redlight"
+              ? "W / ↑ runs forward · A·D to dodge · FREEZE the instant it's RED"
+              : game === "koth"
+                ? "WASD / Arrows to move · bump rivals into the lava!"
+                : "WASD / Arrows to move"}
       </div>
       <style jsx>{`
         .brawl-btns {
@@ -295,8 +314,8 @@ function ProphuntControls() {
   const hunting = st.phase === "hunt";
   const hint = seeker
     ? hunting
-      ? `🗡️ ${st.swings} swing${st.swings === 1 ? "" : "s"} left · found ${st.found}/${st.quota}`
-      : "🙈 Counting… the blade comes out soon."
+      ? `🗡️ ${st.swings} swing${st.swings === 1 ? "" : "s"} left · found ${st.found}/${st.quota} — skewer ${st.quota} or YOU'RE boxed!`
+      : "🙈 Counting… the blade comes out soon. (Find at least 1 or you're out too.)"
     : hunting
       ? "🫥 HOLD STILL — moving makes you twitch (and twitching gets you found)"
       : "🏃 Find a lookalike prop and freeze next to it!";
@@ -444,9 +463,34 @@ function Joystick({ onVec }: { onVec: (dx: number, dy: number) => void }) {
   );
 }
 
-// ---------------- glass bridge ----------------
+// ---------------- glass bridge (turn-based relay) ----------------
 function GlassControls() {
+  const youId = useGame((s) => s.youId);
+  const [st, setSt] = useState({ active: "", activeName: "", phase: "choose", alive: true, finished: false });
+  const turnRef = useRef(false);
+
+  // poll the snapshot so only the blob whose turn it is can pick
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const cur = snapBuffer.cur;
+      if (!cur || cur.game !== "glassbridge") return;
+      const d: any = cur.data || {};
+      const me = (d.walkers || []).find((w: any) => w.id === youId);
+      const act = (d.walkers || []).find((w: any) => w.id === d.activeId);
+      turnRef.current = d.activeId === youId && d.phase === "choose";
+      setSt({
+        active: d.activeId || "",
+        activeName: act?.name || "someone",
+        phase: d.phase || "choose",
+        alive: me ? me.alive : true,
+        finished: me ? me.finished : false,
+      });
+    }, 100);
+    return () => clearInterval(iv);
+  }, [youId]);
+
   const choose = (v: "L" | "R") => {
+    if (!turnRef.current) return; // only the active blob, only while choosing
     net.input({ kind: "choose", value: v });
     recordGlassChoice(v === "R" ? 1 : -1);
     audio.sfx("blip");
@@ -460,14 +504,27 @@ function GlassControls() {
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
   }, []);
+
+  const yourTurn = st.active === youId && st.phase === "choose";
+  const hint = st.finished
+    ? "🏁 You made it across — safe!"
+    : !st.alive
+      ? "💥 You shattered the glass. Spectating…"
+      : yourTurn
+        ? "YOUR TURN — LEFT or RIGHT. One holds, one shatters."
+        : `⏳ Watch ${st.activeName} guess — learn the pattern…`;
+
   return (
     <div className="glass-btns">
-      <button className="gbtn" onPointerDown={() => choose("L")}>
-        ◀<span>LEFT</span>
-      </button>
-      <button className="gbtn" onPointerDown={() => choose("R")}>
-        <span>RIGHT</span>▶
-      </button>
+      <div className="glass-turn">{hint}</div>
+      <div className="glass-row">
+        <button className="gbtn" disabled={!yourTurn} onPointerDown={() => choose("L")}>
+          ◀<span>LEFT</span>
+        </button>
+        <button className="gbtn" disabled={!yourTurn} onPointerDown={() => choose("R")}>
+          <span>RIGHT</span>▶
+        </button>
+      </div>
       <style jsx>{`
         .glass-btns {
           position: absolute;
@@ -475,7 +532,28 @@ function GlassControls() {
           left: 50%;
           transform: translateX(-50%);
           display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+        }
+        .glass-turn {
+          font-family: var(--font-display);
+          font-weight: 800;
+          font-size: 0.95rem;
+          color: var(--yellow);
+          background: rgba(0, 0, 0, 0.45);
+          padding: 5px 16px;
+          border-radius: 12px;
+          text-align: center;
+          max-width: 92vw;
+        }
+        .glass-row {
+          display: flex;
           gap: 30px;
+        }
+        .gbtn:disabled {
+          opacity: 0.35;
+          filter: grayscale(0.5);
         }
         .gbtn {
           width: 150px;
@@ -636,7 +714,7 @@ function RollControls() {
         {!finished && <span className="cdfill" style={{ transform: `scaleX(${1 - cd})` }} />}
       </button>
       <div className="hint">
-        {finished ? "You scrambled to the top — enjoy the view." : "SMASH to roll · 🪜 up · 🐍 down · don't be last!"}
+        {finished ? "🏁 SAFE at the top — you made it. Enjoy the view." : "SMASH to roll · 🪜 climb to safety · 🐍 snakes can KILL · reach the top!"}
       </div>
       <style jsx>{`
         .roll {
@@ -720,6 +798,8 @@ function RollControls() {
 
 // ---------------- RPS minus one ----------------
 const THROW_LABEL: Record<string, string> = { R: "✊ Rock", P: "✋ Paper", S: "✌️ Scissors" };
+const THROW_ICON: Record<string, string> = { R: "✊", P: "✋", S: "✌️" };
+const THROW_WORD: Record<string, string> = { R: "Rock", P: "Paper", S: "Scissors" };
 function RpsControls() {
   const youId = useGame((s) => s.youId);
   const [phase, setPhase] = useState("pick");
@@ -728,6 +808,7 @@ function RpsControls() {
   const [locked, setLocked] = useState(false);
   const [kept, setKept] = useState<string | null>(null);
   const [status, setStatus] = useState("pick");
+  const [ties, setTies] = useState(0);
 
   // poll snapshot for phase + my duel
   useEffect(() => {
@@ -742,6 +823,7 @@ function RpsControls() {
         const mine = duel.a === youId ? duel.aThrows : duel.bThrows;
         setMyThrows(mine || []);
         setStatus(duel.status);
+        setTies(duel.ties || 0);
       }
     }, 120);
     return () => clearInterval(iv);
@@ -782,12 +864,13 @@ function RpsControls() {
     <div className="rps-ctl">
       {phase === "pick" && (
         <>
+          {ties > 0 && <div className="rps-tie">🤝 TIE #{ties} — same throw, nobody’s out. Throw again!</div>}
           <div className="rps-title">{locked ? "Locked! Waiting for the drop…" : `Pick TWO throws (${picks.length}/2)`}</div>
           {!locked && (
             <div className="rps-row">
               {["R", "P", "S"].map((t) => (
                 <button key={t} className="rps-btn" onClick={() => pick(t)}>
-                  {THROW_LABEL[t]}
+                  <span className="rps-ico">{THROW_ICON[t]}</span> {THROW_WORD[t]}
                 </button>
               ))}
             </div>
@@ -802,7 +885,7 @@ function RpsControls() {
             <div className="rps-row">
               {myThrows.map((t, i) => (
                 <button key={i} className="rps-btn keep" onClick={() => keep(t)}>
-                  Keep {THROW_LABEL[t]}
+                  Keep <span className="rps-ico">{THROW_ICON[t]}</span> {THROW_WORD[t]}
                 </button>
               ))}
             </div>
@@ -852,6 +935,19 @@ function RpsControls() {
         .rps-btn.keep {
           background: rgba(31, 227, 194, 0.18);
           border-color: var(--teal);
+        }
+        /* Hands thrown sideways (a real RPS throw), rotated 90° — never flipped
+           upside-down. */
+        .rps-ico {
+          display: inline-block;
+          transform: rotate(90deg);
+          font-size: 1.3rem;
+          vertical-align: middle;
+        }
+        .rps-tie {
+          font-size: 0.95rem;
+          font-weight: 800;
+          color: var(--yellow);
         }
         .rps-picks {
           font-size: 0.9rem;
@@ -1072,8 +1168,8 @@ function SimonControls() {
         ))}
       </div>
       <div className="simon-hint">
-        {SIMON_FREEZE.emoji} <strong>FREEZE</strong> means touch nothing — a wrong move, a fumble, or one twitch and
-        you&apos;re boxed.
+        Do the order shown above — tap its button or press the key on it. {SIMON_FREEZE.emoji}{" "}
+        <strong>FREEZE</strong> means touch NOTHING — a wrong move, fumble, or one twitch and you&apos;re boxed.
       </div>
       <style jsx>{`
         .simon-ctl {
@@ -1138,20 +1234,22 @@ function SimonControls() {
           line-height: 1;
         }
         .simon-label {
-          font-size: 0.74rem;
+          font-size: 0.8rem;
         }
         .simon-key {
-          font-size: 0.62rem;
-          color: var(--ink-dim);
-          background: rgba(255, 255, 255, 0.1);
+          font-size: 0.74rem;
+          font-weight: 800;
+          color: #06241f;
+          background: var(--yellow);
           border-radius: 6px;
-          padding: 1px 6px;
+          padding: 1px 8px;
         }
         .simon-hint {
-          font-size: 0.72rem;
-          color: var(--ink-dim);
+          font-size: 0.9rem;
+          color: var(--ink);
           text-align: center;
-          max-width: 520px;
+          max-width: 560px;
+          line-height: 1.35;
         }
         .simon-hint strong {
           color: #bbe9ff;

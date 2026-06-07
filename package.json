@@ -14,7 +14,8 @@
     "migrate:auth": "tsx scripts/migrate-auth.ts",
     "smoke": "node scripts/smoke.mjs",
     "smoke:all": "node scripts/smoke-all.mjs",
-    "smoke:survivor": "node scripts/verify-single-survivor.mjs"
+    "smoke:survivor": "node scripts/verify-single-survivor.mjs",
+    "sim:feedback": "tsx scripts/sim-feedback.mts"
   },
   "engines": {
     "node": "20.x"

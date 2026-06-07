@@ -5,9 +5,7 @@ import { ARENA_W, ARENA_H, PLAYER_RADIUS } from "../../shared/constants";
 import { getMap } from "../../shared/maps";
 import { drawArena, drawBlob, drawShadow, drawProp, drawSword } from "./draw";
 import type { FxSystem } from "./fx";
-import { POWERUP_ICONS, POWERUPS } from "../../shared/powerups";
-import { simonEmoji } from "../../shared/simon";
-import { glassChoice } from "../glass";
+import { simonEmoji, simonByKey } from "../../shared/simon";
 
 // Team accent colors (freeze tag / dodgeball)
 const TEAM_COLORS = ["#29b6f6", "#ff6f9c"];
@@ -378,30 +376,38 @@ function drawMingleGround(ctx: CanvasRenderingContext2D, d: any, t: number) {
   }
 }
 
-// boomerang-only kinds layered on top of the shared catalog icons
-const PICKUP_ICONS: Record<string, string> = { ...POWERUP_ICONS, bigrang: "🪃", multishot: "✨", magnet: "🧲" };
-
+// Powerups are a GAMBLE now — every orb looks identical (no icon, no good/bad
+// color tell). You don't know if it's a blessing or a curse until you grab it.
 function drawPickups(ctx: CanvasRenderingContext2D, d: any, t: number) {
   if (!d.pickups) return;
   for (const p of d.pickups) {
-    const bad = POWERUPS[p.kind as keyof typeof POWERUPS]?.good === false;
     const bob = Math.sin(p.bob) * 6;
+    // a gentle hue cycle (same animation rule for ALL orbs, so it never leaks
+    // which kind it is) — just a mysterious shimmer.
+    const hue = (t * 0.05 + p.x * 0.3 + p.y * 0.2) % 360;
     ctx.save();
     ctx.translate(p.x, p.y + bob);
-    ctx.fillStyle = bad ? "rgba(255,82,82,0.14)" : "rgba(255,255,255,0.14)";
-    ctx.strokeStyle = bad ? "#ff5252" : "#ffd54f";
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.006 + p.bob);
+    ctx.shadowColor = `hsl(${hue}, 90%, 65%)`;
+    ctx.shadowBlur = 12 + pulse * 10;
+    const g = ctx.createRadialGradient(-6, -6, 2, 0, 0, 22);
+    g.addColorStop(0, "rgba(255,255,255,0.55)");
+    g.addColorStop(0.5, `hsla(${hue}, 85%, 60%, 0.45)`);
+    g.addColorStop(1, `hsla(${(hue + 60) % 360}, 85%, 45%, 0.25)`);
+    ctx.fillStyle = g;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
     ctx.lineWidth = 3;
-    ctx.shadowColor = bad ? "#ff5252" : "#ffd54f";
-    ctx.shadowBlur = 10;
     ctx.beginPath();
     ctx.arc(0, 0, 22, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.shadowBlur = 0;
-    ctx.font = "24px serif";
+    // a single "?" — same on every orb. Snatch it and find out.
+    ctx.fillStyle = "#fff";
+    ctx.font = "800 26px 'Baloo 2', sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(PICKUP_ICONS[p.kind] || "?", 0, 1);
+    ctx.fillText("?", 0, 1);
     ctx.restore();
   }
   ctx.textBaseline = "alphabetic";
@@ -534,16 +540,14 @@ function drawSpikePin(ctx: CanvasRenderingContext2D, x: number, y: number, facin
 // reports row + stun; everything below — the climbing camera, the step onto the
 // chosen tile, the shatter — is interpolated here so the choice actually reads.
 const glass = {
-  cam: 0, // smoothly interpolated camera row (float)
-  stepX: 0, // eased lateral lean toward the picked tile, -1 (L) .. 1 (R)
-  prevRow: 0,
-  prevStun: false,
-  shatterAt: -1, // rc.time of the last crack, drives the shatter overlay
-  shatterSide: 1 as -1 | 1,
-  landAt: -1, // rc.time of the last successful step (releases the lean)
+  cam: 0, // eased camera row (follows the shared frontier)
   lastT: 0,
   inited: false,
-  subjectId: null as string | null, // when spectating, the climber we're following
+  stepKey: "", // dedupes the server's lastStep so an animation fires once
+  stepAt: -1, // rc.time of the last successful step (hop)
+  shatterAt: -1, // rc.time of the last shatter
+  shatterRow: -1,
+  shatterSide: 0,
 };
 const GLASS_ROW_H = 92;
 
@@ -582,6 +586,16 @@ function drawShatteredTile(ctx: CanvasRenderingContext2D, tx: number, yy: number
 function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Snapshot, rc: RenderCtx) {
   const d = cur.data || {};
   const rows: number = d.rows || 8;
+  const frontier: number = d.frontier ?? 0;
+  const revealedSides: number[] = d.revealedSides || []; // per row: -1 unknown, 0 L, 1 R
+  const brokeSide: number[] = d.brokeSide || [];
+  const walkers: any[] = d.walkers || [];
+  const activeId: string = d.activeId || "";
+  const phase: string = d.phase || "choose";
+  const last = d.lastStep as { id: string; row: number; side: number; ok: boolean } | null;
+  const active = walkers.find((w) => w.id === activeId);
+  const youActive = activeId === rc.youId && phase === "choose";
+
   // backdrop chasm
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "#1a1030");
@@ -589,294 +603,329 @@ function renderGlass(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  const walkers: any[] = d.walkers || [];
-  const you = walkers.find((w: any) => w.id === rc.youId);
-
-  // Who fills the center bridge: your own crossing while you're still on it,
-  // otherwise a leader to follow so the fallen & the spectators watch the action
-  // instead of a dead "Spectating…" screen. (Finishers keep their own splash.)
-  let subject: any = you && you.alive && !you.finished ? you : null;
-  const isLocal = !!subject;
-  if (!subject && !(you && you.finished)) {
-    let feat = glass.subjectId
-      ? walkers.find((w: any) => w.id === glass.subjectId && w.alive && !w.finished)
-      : null;
-    if (!feat) {
-      feat =
-        walkers.filter((w: any) => w.alive && !w.finished).sort((a: any, b: any) => b.row - a.row)[0] || null;
-      glass.subjectId = feat ? feat.id : null;
-      glass.inited = false; // re-seat the camera on the newly-chosen subject
+  // --- local animation clock + latch the server's last step / shatter once ---
+  const dt = glass.lastT ? Math.min(0.05, Math.max(0, (rc.time - glass.lastT) / 1000)) : 0;
+  glass.lastT = rc.time;
+  if (last) {
+    const key = `${last.id}:${last.row}:${last.ok}`;
+    if (key !== glass.stepKey) {
+      glass.stepKey = key;
+      if (last.ok) glass.stepAt = rc.time;
+      else {
+        glass.shatterAt = rc.time;
+        glass.shatterRow = last.row;
+        glass.shatterSide = last.side;
+      }
     }
-    subject = feat;
   }
+  if (!glass.inited) {
+    glass.cam = frontier;
+    glass.inited = true;
+  }
+  glass.cam += (frontier - glass.cam) * Math.min(1, dt * 8);
+  const cam = glass.cam;
 
-  // ----- left rail: everyone's progress (the watched climber gets a ring) -----
+  // ----- left rail: the LINE (turn order, who's alive / out / up) -----
   ctx.save();
   ctx.font = "700 14px 'Baloo 2', sans-serif";
   ctx.fillStyle = "#b9a7d6";
   ctx.textAlign = "left";
-  ctx.fillText("CLIMBERS", 24, 34);
+  ctx.fillText("THE LINE", 24, 34);
   const railH = H - 90;
+  const per = Math.max(1, Math.min(12, walkers.length));
   walkers.forEach((w: any, i: number) => {
-    const yy = 60 + (i % 12) * (railH / 12);
-    const xx = 24 + Math.floor(i / 12) * 120;
-    const prog = w.finished ? 1 : w.row / rows;
-    ctx.fillStyle = w.alive ? (w.finished ? "#69f0ae" : "#fff") : "#6b5a86";
-    drawBlob(ctx, w.characterId, xx + 14, yy, { r: 12, time: rc.time, anim: w.alive ? "idle" : "dead", variant: rc.variants?.get(w.id) });
-    if (!isLocal && subject && w.id === subject.id) {
+    const yy = 60 + (i % per) * (railH / per);
+    const xx = 24 + Math.floor(i / per) * 132;
+    drawBlob(ctx, w.characterId, xx + 14, yy, {
+      r: 12,
+      time: rc.time,
+      anim: w.finished ? "cheer" : w.alive ? "idle" : "dead",
+      variant: rc.variants?.get(w.id),
+    });
+    if (w.id === activeId && w.alive && !w.finished) {
       ctx.strokeStyle = "#ffd54f";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(xx + 14, yy, 16, 0, Math.PI * 2);
+      ctx.arc(xx + 14, yy, 17, 0, Math.PI * 2);
       ctx.stroke();
     }
-    ctx.fillStyle = "rgba(255,255,255,0.15)";
-    ctx.fillRect(xx + 34, yy - 4, 70, 8);
-    ctx.fillStyle = w.finished ? "#69f0ae" : w.alive ? "#ff8fb3" : "#6b5a86";
-    ctx.fillRect(xx + 34, yy - 4, 70 * prog, 8);
+    ctx.font = "700 12px 'Baloo 2', sans-serif";
+    ctx.fillStyle = w.finished ? "#69f0ae" : !w.alive ? "#6b5a86" : w.id === activeId ? "#ffd54f" : "#cbb6ff";
+    ctx.fillText(
+      w.finished ? "SAFE ✓" : !w.alive ? "shattered" : w.id === activeId ? "▶ up now" : "waiting",
+      xx + 32,
+      yy + 4,
+    );
   });
   ctx.restore();
 
-  // ----- center: the bridge -----
   const cx = W / 2;
-  // Your own finish keeps its celebration (a personal win moment).
-  if (you && you.finished) {
-    glass.inited = false;
-    glass.subjectId = null;
-    ctx.font = "800 44px 'Baloo 2', sans-serif";
-    ctx.fillStyle = "#69f0ae";
-    ctx.textAlign = "center";
-    ctx.fillText("🏁 You made it across!", cx, H / 2);
-    drawBlob(ctx, you.characterId, cx, H / 2 + 70, { r: 40, time: rc.time, anim: "cheer", name: you.name, number: rc.numbers?.get(you.id), variant: rc.variants?.get(you.id), you: true });
-    return;
-  }
-  // Nobody left on the bridge to watch — quiet splash for your own outcome.
-  if (!subject) {
-    glass.inited = false;
-    glass.subjectId = null;
-    ctx.font = "800 40px 'Baloo 2', sans-serif";
-    ctx.fillStyle = you && !you.alive ? "#ff5252" : "#b9a7d6";
-    ctx.textAlign = "center";
-    ctx.fillText(you && !you.alive ? "💥 You fell!" : "Spectating…", cx, H / 2);
-    return;
-  }
+  const baseY = H - 120;
+  const topY = 92;
 
-  // --- advance the local animation clock ---
-  const dt = glass.lastT ? Math.min(0.05, Math.max(0, (rc.time - glass.lastT) / 1000)) : 0;
-  glass.lastT = rc.time;
-  // (re)initialise on first frame, a fresh bridge, or a change of subject
-  if (!glass.inited || subject.row + 1 < Math.floor(glass.cam)) {
-    glass.cam = subject.row;
-    glass.stepX = 0;
-    glass.prevRow = subject.row;
-    glass.prevStun = subject.stun;
-    glass.shatterAt = -1;
-    glass.landAt = -1;
-    glass.inited = true;
-  }
-  // react to what the server just told us: a step cleared, or a tile cracked. We
-  // only know which side YOU picked; for a watched climber, fake a side off the
-  // row so the shatter still reads.
-  if (subject.row > glass.prevRow) glass.landAt = rc.time;
-  if (subject.stun && !glass.prevStun) {
-    glass.shatterAt = rc.time;
-    glass.shatterSide = isLocal ? (glassChoice.at > 0 ? glassChoice.side : 1) : subject.row % 2 === 0 ? -1 : 1;
-  }
-  glass.prevRow = subject.row;
-  glass.prevStun = subject.stun;
-
-  // camera climbs toward the current row → real sense of crossing
-  glass.cam += (subject.row - glass.cam) * Math.min(1, dt * 9);
-  // lean onto the tile you just picked, until the server resolves it (local only)
-  const choosing =
-    isLocal &&
-    !subject.stun &&
-    glassChoice.at > glass.landAt &&
-    glassChoice.at > glass.shatterAt &&
-    rc.time - glassChoice.at < 600;
-  const recoiling = rc.time - glass.shatterAt < 240;
-  let leanTarget = 0;
-  if (choosing) leanTarget = glassChoice.side;
-  else if (recoiling) leanTarget = glass.shatterSide * 0.7;
-  glass.stepX += (leanTarget - glass.stepX) * Math.min(1, dt * 16);
-
-  const cam = glass.cam;
-  const baseY = H - 110;
-  const topY = 86;
-  // perspective rows receding up the bridge
+  // ----- the shared bridge -----
   for (let r = Math.max(0, Math.floor(cam) - 1); r < rows; r++) {
     const depth = r - cam;
     const yy = baseY - depth * GLASS_ROW_H;
     if (yy < topY - 60) break;
     if (yy > H + 60) continue;
     const scale = Math.max(0.34, 1 - Math.max(0, depth) * 0.12);
-    const tileW = 110 * scale;
+    const tileW = 116 * scale;
     const gap = 40 * scale;
-    const isChoice = r === subject.row;
-    for (const side of [-1, 1]) {
-      const tx = cx + side * (gap / 2 + tileW / 2);
-      const broken = isChoice && side === glass.shatterSide && rc.time - glass.shatterAt < 480;
+    const isFrontier = r === frontier;
+    const safe = revealedSides[r]; // -1 unknown, 0 L, 1 R
+    for (const sideIdx of [0, 1]) {
+      const sign = sideIdx === 0 ? -1 : 1;
+      const tx = cx + sign * (gap / 2 + tileW / 2);
+      const recentShatter = glass.shatterRow === r && glass.shatterSide === sideIdx && rc.time - glass.shatterAt < 520;
       ctx.save();
-      ctx.globalAlpha = isChoice ? 1 : Math.max(0.18, 0.6 - Math.max(0, depth) * 0.05);
-      if (broken) {
+      ctx.globalAlpha = isFrontier ? 1 : Math.max(0.2, 0.7 - Math.max(0, depth) * 0.05);
+      if (recentShatter) {
         drawShatteredTile(ctx, tx, yy, tileW, scale, rc.time - glass.shatterAt);
-      } else {
-        const grad = ctx.createLinearGradient(tx, yy - 30, tx, yy + 30);
-        grad.addColorStop(0, "rgba(180,235,255,0.55)");
-        grad.addColorStop(1, "rgba(120,200,255,0.22)");
-        ctx.fillStyle = grad;
-        const leaning = isChoice && Math.sign(glass.stepX) === side && Math.abs(glass.stepX) > 0.25;
-        ctx.strokeStyle = isChoice ? (leaning ? "#b9f6ff" : "#80d8ff") : "rgba(180,235,255,0.45)";
-        ctx.lineWidth = isChoice ? (leaning ? 5 : 3) : 2;
+      } else if (safe >= 0 && safe !== sideIdx) {
+        // KNOWN unsafe side — drawn as a gaping hole (it's been exposed)
+        ctx.globalAlpha *= 0.4;
+        ctx.fillStyle = "rgba(10,6,20,0.6)";
+        ctx.strokeStyle = "rgba(120,90,160,0.35)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 6]);
         roundRect(ctx, tx - tileW / 2, yy - 26 * scale, tileW, 52 * scale, 10);
         ctx.fill();
         ctx.stroke();
-        // arrows only on YOUR choice tile — a spectator isn't picking
-        if (isChoice && isLocal) {
-          ctx.fillStyle = leaning ? "#fff" : "rgba(255,255,255,0.85)";
+        ctx.setLineDash([]);
+      } else {
+        const known = safe === sideIdx; // a revealed SAFE pane
+        const grad = ctx.createLinearGradient(tx, yy - 30, tx, yy + 30);
+        if (known) {
+          grad.addColorStop(0, "rgba(105,240,174,0.6)");
+          grad.addColorStop(1, "rgba(46,184,124,0.3)");
+        } else {
+          grad.addColorStop(0, "rgba(180,235,255,0.55)");
+          grad.addColorStop(1, "rgba(120,200,255,0.22)");
+        }
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = known ? "#69f0ae" : isFrontier ? "#b9f6ff" : "rgba(180,235,255,0.45)";
+        ctx.lineWidth = isFrontier ? 4 : 2;
+        roundRect(ctx, tx - tileW / 2, yy - 26 * scale, tileW, 52 * scale, 10);
+        ctx.fill();
+        ctx.stroke();
+        if (known) {
+          ctx.fillStyle = "#eafff3";
+          ctx.font = `800 ${22 * scale}px 'Baloo 2', sans-serif`;
+          ctx.textAlign = "center";
+          ctx.fillText("✓", tx, yy + 8 * scale);
+        } else if (isFrontier && youActive) {
+          // arrows only when it's actually YOUR turn to pick
+          ctx.fillStyle = "rgba(255,255,255,0.9)";
           ctx.font = `800 ${26 * scale}px 'Baloo 2', sans-serif`;
           ctx.textAlign = "center";
-          ctx.fillText(side < 0 ? "◀" : "▶", tx, yy + 9 * scale);
+          ctx.fillText(sign < 0 ? "◀" : "▶", tx, yy + 9 * scale);
         }
       }
       ctx.restore();
     }
   }
 
-  // the climber — stands in front of the choice tiles and steps onto the pick
-  const choiceDepth = subject.row - cam;
-  const choiceY = baseY - choiceDepth * GLASS_ROW_H;
-  const cScale = Math.max(0.5, 1 - Math.max(0, choiceDepth) * 0.12);
-  const tileW = 110 * cScale;
-  const gap = 40 * cScale;
-  const standX = cx + glass.stepX * (gap / 2 + tileW / 2);
-  const standY = choiceY + 34 * cScale - Math.abs(glass.stepX) * 12; // little hop as you step over
-  drawBlob(ctx, subject.characterId, standX, standY, {
-    r: 34,
-    time: rc.time,
-    anim: subject.stun ? "fall" : "idle",
-    name: subject.name,
-    number: rc.numbers?.get(subject.id),
-    variant: rc.variants?.get(subject.id),
-    you: isLocal,
-    flash: subject.stun ? 0.6 : 0,
-  });
+  // ----- the active blob, standing at the frontier row -----
+  if (active && active.alive && !active.finished && (phase === "choose" || phase === "step" || phase === "resolve")) {
+    const depth = frontier - cam;
+    const fy = baseY - depth * GLASS_ROW_H;
+    const fScale = Math.max(0.55, 1 - Math.max(0, depth) * 0.12);
+    const hop = rc.time - glass.stepAt < 350 ? Math.sin(((rc.time - glass.stepAt) / 350) * Math.PI) * 16 : 0;
+    const justBroke = last && !last.ok && glass.shatterRow === frontier && rc.time - glass.shatterAt < 500;
+    if (!justBroke) {
+      drawBlob(ctx, active.characterId, cx, fy + 36 * fScale - hop, {
+        r: 34,
+        time: rc.time,
+        anim: "idle",
+        name: active.name,
+        number: rc.numbers?.get(active.id),
+        variant: rc.variants?.get(active.id),
+        you: active.id === rc.youId,
+      });
+    }
+  }
 
-  // header / prompt
+  // ----- header / prompt -----
   ctx.textAlign = "center";
   ctx.font = "800 22px 'Baloo 2', sans-serif";
   ctx.fillStyle = "#fff";
-  ctx.fillText(`Row ${Math.min(subject.row + 1, rows)} / ${rows}`, cx, topY - 26);
-  if (!isLocal) {
+  ctx.fillText(`Pane ${Math.min(frontier + 1, rows)} / ${rows}`, cx, topY - 30);
+
+  if (phase === "done") {
+    ctx.fillStyle = "#69f0ae";
+    ctx.font = "800 30px 'Baloo 2', sans-serif";
+    ctx.fillText("🏁 Across! The pattern's cracked.", cx, topY);
+  } else if (youActive) {
     ctx.fillStyle = "#ffd54f";
-    ctx.font = "800 17px 'Baloo 2', sans-serif";
-    ctx.fillText(`👁 Watching ${subject.name}`, cx, topY + 2);
-  } else if (subject.stun) {
-    ctx.fillStyle = "#ff5252";
     ctx.font = "800 24px 'Baloo 2', sans-serif";
-    ctx.fillText("CRACK! — steady…", cx, topY + 4);
-  } else {
-    ctx.fillStyle = "#b9a7d6";
-    ctx.font = "700 15px 'Baloo 2', sans-serif";
-    ctx.fillText("pick a tile — one holds, one shatters", cx, topY + 2);
+    ctx.fillText("YOUR TURN — pick a pane!", cx, topY);
+    // turn timer bar
+    const tl = Math.max(0, Math.min(1, (d.turnTimeLeft ?? 0) / 6));
+    const barW = Math.min(360, W * 0.4);
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    roundRect(ctx, cx - barW / 2, topY + 12, barW, 10, 5);
+    ctx.fill();
+    ctx.fillStyle = tl > 0.4 ? "#69f0ae" : "#ff5252";
+    roundRect(ctx, cx - barW / 2, topY + 12, barW * tl, 10, 5);
+    ctx.fill();
+  } else if (active) {
+    ctx.fillStyle = "#ffd54f";
+    ctx.font = "800 18px 'Baloo 2', sans-serif";
+    ctx.fillText(`👁 ${active.name} is choosing…`, cx, topY);
   }
 }
 
 // =================== TUG OF WAR ===================
+// Local clock for the lose animation (when does the losing team start to fall).
+const tug = { loseAt: 0, loser: -1 };
 function renderTug(ctx: CanvasRenderingContext2D, W: number, H: number, cur: Snapshot, rc: RenderCtx) {
   const d = cur.data || {};
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#143029");
-  g.addColorStop(1, "#08110f");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-
-  const midY = H * 0.52;
 
   // ropePos > 0 → team 0 (left) is winning; < 0 → team 1 (right) is winning.
   const ropePos = d.ropePos || 0;
   const rp = Math.max(-1, Math.min(1, ropePos));
-  // The rope/flag slides toward the WINNING team's side — tap harder, haul it home.
-  const slide = rp * (W * 0.3);
-  const centerX = W / 2 - slide; // rp>0 → moves left, toward team 0
-
-  // pits at the far edges — the pit on the *winning* side flares, since that's the
-  // way the rope (and soon the losing team) is being dragged.
-  for (const side of [-1, 1]) {
-    // side -1 = left pit (team 0's side), +1 = right pit (team 1's side)
-    const hot = side < 0 ? ropePos > 0.4 : ropePos < -0.4;
-    const px = side < 0 ? 0 : W - 110;
-    const pg = ctx.createLinearGradient(px, 0, side < 0 ? 110 : W - 110, 0);
-    pg.addColorStop(side < 0 ? 0 : 1, `rgba(255,23,68,${hot ? 0.8 : 0.42})`);
-    pg.addColorStop(side < 0 ? 1 : 0, "rgba(255,23,68,0)");
-    ctx.fillStyle = pg;
-    ctx.fillRect(px, 0, 110, H);
+  const loserTeam: number = d.loserTeam ?? -1;
+  if (loserTeam >= 0 && tug.loser !== loserTeam) {
+    tug.loser = loserTeam;
+    tug.loseAt = rc.time;
   }
-  ctx.font = "800 18px 'Baloo 2', sans-serif";
-  ctx.fillStyle = "#ff5252";
+  if (loserTeam < 0) {
+    tug.loser = -1;
+    tug.loseAt = 0;
+  }
+  const fallT = loserTeam >= 0 && tug.loseAt ? Math.max(0, (rc.time - tug.loseAt) / 1000) : 0;
+
+  // ---- canyon backdrop: two solid platforms with a deadly chasm between them ----
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, "#241b10");
+  sky.addColorStop(1, "#0c0a08");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  const groundY = H * 0.6; // top surface the blobs stand on
+  const pitHalf = Math.min(190, W * 0.16); // half-width of the central pit
+  const pitL = W / 2 - pitHalf;
+  const pitR = W / 2 + pitHalf;
+
+  // the pit — a dark void dropping away under the rope ("underneath", as asked)
+  const voidG = ctx.createLinearGradient(0, groundY - 20, 0, H);
+  voidG.addColorStop(0, "#100a06");
+  voidG.addColorStop(0.6, "#060403");
+  voidG.addColorStop(1, "#000");
+  ctx.fillStyle = voidG;
+  ctx.fillRect(pitL, groundY - 20, pitHalf * 2, H - groundY + 20);
+  // a faint menacing glow at the very bottom of the pit
+  const glow = ctx.createRadialGradient(W / 2, H + 40, 10, W / 2, H + 40, pitHalf * 1.6);
+  glow.addColorStop(0, "rgba(255,60,0,0.28)");
+  glow.addColorStop(1, "rgba(255,60,0,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(pitL, groundY, pitHalf * 2, H - groundY);
+
+  // the two platforms (left = team 0, right = team 1)
+  const drawPlatform = (x0: number, x1: number) => {
+    const pg = ctx.createLinearGradient(0, groundY, 0, H);
+    pg.addColorStop(0, "#6a513a");
+    pg.addColorStop(1, "#2c2014");
+    ctx.fillStyle = pg;
+    ctx.fillRect(x0, groundY, x1 - x0, H - groundY);
+    ctx.fillStyle = "#8a6c4a";
+    ctx.fillRect(x0, groundY, x1 - x0, 8); // grassy/rock lip
+  };
+  drawPlatform(0, pitL);
+  drawPlatform(pitR, W);
+
+  // "THE PIT" label down in the chasm
+  ctx.save();
+  ctx.fillStyle = "rgba(255,82,82,0.8)";
+  ctx.font = "800 20px 'Baloo 2', sans-serif";
   ctx.textAlign = "center";
-  ctx.save();
-  ctx.translate(40, H / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText("THE PIT", 0, 0);
-  ctx.restore();
-  ctx.save();
-  ctx.translate(W - 40, H / 2);
-  ctx.rotate(Math.PI / 2);
-  ctx.fillText("THE PIT", 0, 0);
+  ctx.fillText("THE PIT", W / 2, groundY + 54);
   ctx.restore();
 
-  // rope
-  ctx.strokeStyle = "#c8a25a";
-  ctx.lineWidth = 9;
+  // ---- the rope + knot. The knot slides toward the WINNING team (no flag). ----
+  const ropeY = groundY - 40;
+  const knotX = W / 2 - rp * (pitHalf - 26); // rp>0 → slides left toward team 0
+  ctx.strokeStyle = "#caa15a";
+  ctx.lineWidth = 10;
+  ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(120, midY);
-  ctx.lineTo(W - 120, midY);
+  ctx.moveTo(70, ropeY);
+  // rope sags slightly through the knot
+  ctx.quadraticCurveTo(knotX, ropeY + 10, W - 70, ropeY);
   ctx.stroke();
-  // center marker / flag — the pennant points the way the rope is being hauled
-  const flagDir = ropePos >= 0 ? -1 : 1; // toward team 0 (left) or team 1 (right)
-  ctx.fillStyle = Math.abs(ropePos) > 0.4 ? "#ff5252" : "#ffd54f";
-  ctx.fillRect(centerX - 4, midY - 60, 8, 120);
-  ctx.beginPath();
-  ctx.moveTo(centerX, midY - 60);
-  ctx.lineTo(centerX + flagDir * 34, midY - 48);
-  ctx.lineTo(centerX, midY - 36);
+  ctx.lineCap = "butt";
+  // the center knot — a fat red-wrapped binding marking the middle of the rope
+  ctx.save();
+  ctx.translate(knotX, ropeY + 6);
+  ctx.fillStyle = Math.abs(rp) > 0.45 ? "#ff5252" : "#ffd54f";
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, -12, -16, 24, 32, 7);
   ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(-12, -3, 24, 6);
+  ctx.restore();
 
-  // teams — anchored to their own sides, the whole formation leaning the way the
-  // rope slides: the winners haul backward, the losers get dragged toward center.
+  // ---- teams ----
   const t0 = (d.pullers || []).filter((p: any) => p.team === 0);
   const t1 = (d.pullers || []).filter((p: any) => p.team === 1);
-  const lean = -slide * 0.22; // both teams drift toward the winning side
+  // the whole tug-of-war leans toward the winning side as the rope slides
+  const lean = -rp * (pitHalf * 0.5);
+
   const drawTeam = (team: any[], side: number) => {
     // side: -1 = left (team 0), +1 = right (team 1)
+    const losing = side < 0 ? loserTeam === 0 : loserTeam === 1;
+    const edge = side < 0 ? pitL : pitR; // inner edge of this team's platform
     team.forEach((p: any, i: number) => {
-      const bx = W / 2 + side * (130 + i * 60) + lean;
-      const by = midY + (i % 2 === 0 ? -34 : 30);
-      const sway = Math.sin(rc.time * 0.02 + i) * 5;
-      drawBlob(ctx, p.characterId, bx + sway, by, {
+      // anchored back from the pit edge, in two rows, leaning toward the rope
+      let bx = edge - side * (60 + i * 58) + lean;
+      let by = groundY - 18 + (i % 2 === 0 ? -26 : 14);
+      let anim = "run";
+      let rot = 0;
+      let alpha = 1;
+      if (losing && fallT > 0) {
+        // dragged off the edge and tumbling into the chasm
+        const prog = Math.min(1, fallT / 1.3 + i * 0.04);
+        bx = lerp(bx, W / 2, Math.min(1, prog * 1.4));
+        by = groundY - 18 + prog * prog * (H - groundY + 90);
+        rot = prog * (side < 0 ? 3.2 : -3.2);
+        alpha = Math.max(0, 1 - prog * 0.9);
+        anim = "fall";
+      } else if (loserTeam >= 0 && !losing) {
+        anim = "cheer"; // winners celebrate
+      }
+      const sway = losing || loserTeam >= 0 ? 0 : Math.sin(rc.time * 0.02 + i) * 5;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(bx + sway, by);
+      if (rot) ctx.rotate(rot);
+      drawBlob(ctx, p.characterId, 0, 0, {
         r: 30,
         time: rc.time,
-        anim: "run",
-        facing: side < 0 ? 0 : Math.PI, // face the rope / the opponents
+        anim,
+        facing: side < 0 ? 0 : Math.PI, // face the rope
         name: p.name,
         number: rc.numbers?.get(p.id),
         variant: rc.variants?.get(p.id),
         you: p.id === rc.youId,
       });
+      ctx.restore();
     });
   };
-  drawTeam(t0, -1); // team 0 on the LEFT
-  drawTeam(t1, 1); // team 1 on the RIGHT
+  drawTeam(t0, -1);
+  drawTeam(t1, 1);
+  ctx.globalAlpha = 1;
 
   // labels
   ctx.font = "800 22px 'Baloo 2', sans-serif";
-  ctx.fillStyle = "#1fe3c2";
+  ctx.fillStyle = loserTeam === 0 ? "#ff5252" : "#1fe3c2";
   ctx.textAlign = "left";
-  ctx.fillText(`🟦 Team 1  (${t0.length})`, 130, 50);
-  ctx.fillStyle = "#ff8fb3";
+  ctx.fillText(`🟦 Team 1  (${t0.length})`, 40, 44);
+  ctx.fillStyle = loserTeam === 1 ? "#ff5252" : "#ff8fb3";
   ctx.textAlign = "right";
-  ctx.fillText(`Team 2 🟥  (${t1.length})`, W - 130, 50);
+  ctx.fillText(`Team 2 🟥  (${t1.length})`, W - 40, 44);
 
   rc.fx.draw(ctx);
 }
@@ -1091,6 +1140,14 @@ function renderSimon(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
       ctx.fillStyle = "#fff";
       ctx.font = `800 ${big}px 'Baloo 2', sans-serif`;
       ctx.fillText(cmd.label.toUpperCase(), W / 2, H * 0.16 + big * 0.95);
+      // Spell out exactly which key/button does it, so nobody has to squint at
+      // the tiny legend to figure out the mapping mid-panic.
+      const keyLabel = simonByKey(cmd.key)?.keyLabel;
+      if (keyLabel && phase === "call") {
+        ctx.fillStyle = "#ffd54f";
+        ctx.font = "800 30px 'Baloo 2', sans-serif";
+        ctx.fillText(`▶ press  ${keyLabel}  ◀`, W / 2, H * 0.16 + big * 1.5);
+      }
     }
     // judge sub-line: how many got boxed this order
     if (phase === "judge") {
@@ -1293,13 +1350,12 @@ function renderBoard(ctx: CanvasRenderingContext2D, W: number, H: number, cur: S
     board.prevSq.set(c.id, c.square);
   }
 
-  // ---- who's in the danger zone? (lowest living, non-finished pawns) ----
-  const dangerCount: number = d.dangerCount || 0;
-  const racers = climbers
-    .filter((c) => c.alive && !c.finished)
-    .sort((a, b) => a.square - b.square);
-  const inDanger = new Set(racers.slice(0, dangerCount).map((c) => c.id));
-  const lowTime = (d.timeLeft ?? 99) < 6;
+  // ---- who's in the danger zone? Anyone not yet SAFE at the top is at risk once
+  // the clock runs low — reach square 100 or you're eliminated. ----
+  const lowTime = (d.timeLeft ?? 99) < 8;
+  const inDanger = new Set(
+    lowTime ? climbers.filter((c) => c.alive && !c.finished).map((c) => c.id) : [],
+  );
 
   // ---- cluster pawns sharing a cell so they don't fully overlap ----
   const bySquare = new Map<number, any[]>();
@@ -1902,11 +1958,20 @@ function renderParlor(
   ctx.translate(f.ox, f.oy);
   ctx.scale(f.s, f.s);
   const d = cur.data || {};
+  const phase: string = d.phase || "dark";
   const actors = interpActors(cur, prev, alpha);
   const evs: any[] = d.events || [];
   const receiverSet = new Set(evs.map((e) => e.receiverId));
 
-  if (d.phase === "reveal") {
+  // During the blackout the parlor is dim but still VISIBLE — you watch the gifts
+  // get slipped in (from the shadows, source unknown), instead of staring at a
+  // black screen. The reveal/guess phases are fully lit.
+  if (phase === "dark") {
+    ctx.fillStyle = "rgba(8,5,18,0.62)";
+    ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+  }
+
+  if (phase === "reveal") {
     for (const e of evs) {
       const g = actors.find((a) => a.id === e.giverId);
       const r = actors.find((a) => a.id === e.receiverId);
@@ -1929,6 +1994,8 @@ function renderParlor(
       drawCoffin(ctx, a.x, a.y, 1, rc.time, coffinAge(rc, a.id));
       continue;
     }
+    const dim = phase === "dark" ? 0.55 : 1;
+    ctx.globalAlpha = dim;
     drawBlob(ctx, a.characterId, a.x, a.y, {
       r: PLAYER_RADIUS,
       time: rc.time,
@@ -1938,14 +2005,57 @@ function renderParlor(
       variant: rc.variants?.get(a.id),
       you: a.id === rc.youId,
     });
-    if (receiverSet.has(a.id)) {
+    ctx.globalAlpha = 1;
+    // a settled gift sits above each receiver during the guessing/reveal beats
+    if (receiverSet.has(a.id) && phase !== "dark") {
       ctx.font = "30px serif";
       ctx.textAlign = "center";
       ctx.fillText("🎁", a.x, a.y - PLAYER_RADIUS * 1.9 + Math.sin(rc.time * 0.006) * 3);
     }
+    // GUESS phase: show who is still deciding (a bobbing 🤔) vs already locked in
+    if (phase === "guess") {
+      const ev = evs.find((e) => e.receiverId === a.id);
+      if (ev && !ev.guessed) {
+        const pulse = 0.5 + 0.5 * Math.sin(rc.time * 0.008);
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,213,79,${0.4 + pulse * 0.5})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, PLAYER_RADIUS + 12 + pulse * 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        ctx.font = "24px serif";
+        ctx.textAlign = "center";
+        ctx.fillText("🤔", a.x + PLAYER_RADIUS * 1.1, a.y - PLAYER_RADIUS * 1.2);
+      }
+    }
   }
 
-  if (d.phase === "reveal") {
+  // DARK phase: gifts fly in anonymously from the shadows to each receiver, so
+  // you watch the gifting HAPPEN (the giver stays a secret — that's the game).
+  if (phase === "dark") {
+    const prog = Math.max(0, Math.min(1, d.darkProg ?? 0));
+    const sx = ARENA_W / 2;
+    const sy = ARENA_H / 2;
+    evs.forEach((e, i) => {
+      const r = actors.find((a) => a.id === e.receiverId);
+      if (!r) return;
+      // stagger each gift a touch so they arrive one after another, not all at once
+      const local = Math.max(0, Math.min(1, prog * (evs.length + 1) - i));
+      const ease = local * local * (3 - 2 * local); // smoothstep
+      const gx = lerp(sx, r.x, ease);
+      const gy = lerp(sy, r.y - PLAYER_RADIUS * 1.8, ease) - Math.sin(ease * Math.PI) * 40;
+      if (local <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = 0.5 + 0.5 * Math.min(1, local * 2);
+      ctx.font = "28px serif";
+      ctx.textAlign = "center";
+      ctx.fillText("🎁", gx, gy);
+      ctx.restore();
+    });
+  }
+
+  if (phase === "reveal") {
     ctx.textAlign = "center";
     for (const e of evs) {
       const victimId = e.correct ? e.giverId : e.receiverId;
@@ -1959,22 +2069,16 @@ function renderParlor(
   }
   ctx.restore();
 
-  if (d.phase === "dark") {
-    ctx.fillStyle = "rgba(0,0,0,0.72)";
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#cbb6ff";
-    ctx.textAlign = "center";
-    ctx.font = "800 32px 'Baloo 2', sans-serif";
-    ctx.fillText("🌑 A gift is being placed in the dark…", W / 2, H / 2);
-  }
-
   ctx.textAlign = "center";
   ctx.font = "800 26px 'Baloo 2', sans-serif";
-  if (d.phase === "guess") {
+  if (phase === "dark") {
+    ctx.fillStyle = "#cbb6ff";
+    ctx.fillText("🌑 Lights out — gifts are being slipped in the dark…", W / 2, 56);
+  } else if (phase === "guess") {
     const mine = evs.find((e) => e.receiverId === rc.youId);
     ctx.fillStyle = mine ? "#ffd54f" : "#b9a7d6";
-    ctx.fillText(mine ? "🎁 Who gave you this gift? Tap a suspect below!" : "Someone's guessing in the parlor…", W / 2, 56);
-  } else if (d.phase === "reveal") {
+    ctx.fillText(mine ? "🎁 Who gave you this gift? Tap a suspect below!" : "🎁 The gifted are guessing their givers…", W / 2, 56);
+  } else if (phase === "reveal") {
     ctx.fillStyle = "#b9a7d6";
     ctx.fillText("The truth comes out…", W / 2, 56);
   }

@@ -189,7 +189,13 @@ export class PresentSwap implements Minigame {
     if (this.phase === "dark") {
       events = this.events.map((e) => ({ receiverId: e.receiverId }));
     } else if (this.phase === "guess") {
-      events = this.events.map((e) => ({ receiverId: e.receiverId, candidateIds: e.candidateIds }));
+      // expose who has already locked a guess so the watch view can show who's
+      // still deciding (a pulsing "🤔") vs who's committed.
+      events = this.events.map((e) => ({
+        receiverId: e.receiverId,
+        candidateIds: e.candidateIds,
+        guessed: !!e.guessId,
+      }));
     } else {
       events = this.events.map((e) => ({
         receiverId: e.receiverId,
@@ -215,6 +221,9 @@ export class PresentSwap implements Minigame {
         phase: this.phase,
         round: this.round,
         timeLeft: Math.max(0, this.timer),
+        // 0→1 progress of the gifts being slipped in during the blackout, so the
+        // client can animate them arriving (instead of popping in at full).
+        darkProg: this.phase === "dark" ? clamp(1 - this.timer / DARK, 0, 1) : 0,
         events,
       },
       fx,

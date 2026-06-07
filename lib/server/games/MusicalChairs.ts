@@ -39,7 +39,7 @@ export class MusicalChairs extends ArenaGame {
 
   constructor(ctx: GameContext) {
     super(ctx);
-    this.powerups = new PowerupField(ctx.rng, { every: 3, max: 3, goodWeight: 0.6, margin: 120 });
+    this.powerups = new PowerupField(ctx.rng, { every: 2.2, max: 5, goodWeight: 0.55, margin: 120 });
   }
 
   start(): void {
@@ -58,10 +58,10 @@ export class MusicalChairs extends ArenaGame {
 
   private beginMusic(): void {
     this.round++;
-    const alive = this.aliveActors().length;
-    const remove = clamp(Math.ceil(alive * 0.15 * (0.6 + this.ctx.intensity)), 1, Math.max(1, Math.floor(alive / 2)));
-    const nChairs = Math.max(1, alive - remove);
-    this.scatterChairs(nChairs);
+    // Chairs are NOT on the floor during the music — you can't camp on or hover
+    // around one. They only drop in when the music stops (see beginScramble), so
+    // your position during the dance is a real gamble.
+    this.chairs = [];
     for (const a of this.aliveActors()) {
       a.data!.seated = 0;
       a.data!.orbit = Math.atan2(a.y - ARENA_H / 2, a.x - ARENA_W / 2);
@@ -80,7 +80,7 @@ export class MusicalChairs extends ArenaGame {
     this.timer = 3.5 + this.ctx.rng() * 2.5;
     this.fakeT = 0;
     this.fakeCd = 1.1 + this.ctx.rng() * 1.0; // first bait can't fire instantly
-    this.ctx.toast(`🎵 Music's on — keep dancing! ${nChairs} chair${nChairs > 1 ? "s" : ""}, fewer than you'd like.`, "info");
+    this.ctx.toast("🎵 Music's on — keep dancing! Chairs drop the instant it STOPS.", "info");
   }
 
   // Scatter chairs across the floor (with min spacing) instead of a tidy ring, so
@@ -112,6 +112,12 @@ export class MusicalChairs extends ArenaGame {
   private beginScramble(): void {
     this.phase = "scramble";
     this.timer = 4;
+    // NOW the chairs appear — scattered fresh the moment the music dies, so where
+    // you happened to be standing matters and nobody pre-camped a seat.
+    const alive = this.aliveActors().length;
+    const remove = clamp(Math.ceil(alive * 0.15 * (0.6 + this.ctx.intensity)), 1, Math.max(1, Math.floor(alive / 2)));
+    const nChairs = Math.max(1, alive - remove);
+    this.scatterChairs(nChairs);
     for (const a of this.aliveActors()) {
       if (!a.isBot) continue;
       const skill = a.data!.skill ?? this.ctx.rng();
@@ -122,7 +128,7 @@ export class MusicalChairs extends ArenaGame {
       a.data!.reactT = 0.22 + (1 - skill) * 0.55 + this.ctx.rng() * 0.25;
       a.data!.targetChair = -1;
     }
-    this.ctx.toast("🪑 GRAB A CHAIR — elbows are allowed!", "bad");
+    this.ctx.toast(`🪑 ${nChairs} chair${nChairs > 1 ? "s" : ""} — GRAB ONE! Elbows allowed.`, "bad");
     this.boom("ring", ARENA_W / 2, ARENA_H / 2, { color: "#ffd54f", scale: 3 });
   }
 

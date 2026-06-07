@@ -121,8 +121,9 @@ export default function HowToPlay() {
         <div className="panel htp-section">
           <h3>✨ Powerups</h3>
           <p className="dim tiny">
-            The movement games scatter glowing orbs, and roughly half of them want you dead. Snatch the good ones,
-            avoid the rest, and accept that greed is a personality trait that gets blobs killed. 🔴 red glow = regret.
+            The movement games scatter glowing orbs — and every one is an identical, unmarked <strong>❓ mystery</strong>.
+            You won't know if it's a blessing or a curse until you grab it. Roughly half want you dead. Greed is a
+            personality trait that gets blobs killed. Here's the full menu of what could be inside:
           </p>
           <div className="htp-games">
             {ALL_POWERUPS.map((k) => {
@@ -147,8 +148,10 @@ export default function HowToPlay() {
             view, and your suffering.
           </p>
           <p className="dim tiny">
-            The Game Master always saves <strong>King of Lava Island</strong> for the grand finale: the floor turns to
-            lava, the island shrinks, and the last blob standing is crowned champion of a puddle. 🌋
+            The last round is always a <strong>decisive finale</strong> — a game that can crown a single survivor.
+            Sometimes it's <strong>King of Lava Island</strong> (the floor turns to lava, the islands sink, last blob
+            not-on-fire wins 🌋), but it might just as easily be a one-blob-left brawl, a final jump-rope, a
+            sudden-death Simon Says, or a rock-paper-scissors bracket. Whatever it is, exactly one blob walks away.
           </p>
         </div>
 

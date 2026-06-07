@@ -46,7 +46,7 @@ export class ChutesAndLadders implements Minigame {
   private chutes: Link[] = [];
   private timeLeft = 24;
   private duration = 24;
-  private dangerCount = 1; // how many of the lowest get swallowed at the buzzer
+  private deathChance = 0.15; // chance a snake bite is FATAL (not just a slide down)
   private finishCount = 0;
   private done = false;
   private elimOrder: { id: string; note?: string }[] = [];
@@ -78,16 +78,14 @@ export class ChutesAndLadders implements Minigame {
     }
     this.buildBoard();
 
-    // Harsher late in a series: shorter clock + a wider mouth on the snake pit.
-    this.duration = Math.round(26 - this.ctx.intensity * 8); // 18..26s
+    // Harsher late in a series: shorter clock + deadlier snakes. Early rounds get
+    // a roomier clock so most blobs can actually scramble to safety (the top).
+    this.duration = Math.round(30 - this.ctx.intensity * 10); // 20..30s
     this.timeLeft = this.duration;
-    this.dangerCount = clamp(
-      Math.ceil(n * 0.16 * (0.6 + this.ctx.intensity)),
-      1,
-      Math.max(1, Math.floor(n / 2)),
-    );
+    // A snake doesn't just drop you — it might EAT you. Gentle early, vicious late.
+    this.deathChance = clamp(0.12 + 0.32 * this.ctx.intensity, 0.12, 0.5);
 
-    this.ctx.toast("🎲 Roll for your life. The ladders are merciful. The snakes are not.", "info");
+    this.ctx.toast("🎲 RACE to the top — that's safety. Ladders lift you; snakes can swallow you whole.", "info");
   }
 
   // Scatter ladders (up) and snakes (down) across the board, no square shared by
@@ -175,12 +173,28 @@ export class ChutesAndLadders implements Minigame {
       this.fx.push({ kind: "pickup", x: 0, y: 0, color: "#69f0ae", text: id });
       return;
     }
-    // …or get swallowed by a snake and slide down
+    // …or land on a snake. It might just drag you down — or it might eat you.
     const chute = this.chutes.find((s) => s.from === c.square);
     if (chute) {
+      if (this.ctx.rng() < this.deathChance) {
+        // fatal bite — boxed on the spot
+        c.alive = false;
+        c.finished = false;
+        this.elimOrder.push({ id, note: `Eaten by the snake at ${c.square}!` });
+        this.fx.push({ kind: "death", x: 0, y: 0, color: "#ff1744", text: id });
+        this.fx.push({ kind: "splat", x: 0, y: 0, color: "#ff5252", text: id });
+        this.maybeFinishEarly();
+        return;
+      }
       c.square = chute.to;
       this.fx.push({ kind: "shockwave", x: 0, y: 0, color: "#ff5252", text: id });
     }
+  }
+
+  // If a snake bite (or quit) leaves nobody still racing, end the round now.
+  private maybeFinishEarly(): void {
+    const racers = [...this.climbers.values()].filter((c) => c.alive && !c.finished);
+    if (racers.length === 0) this.finish();
   }
 
   tick(dt: number, _now: number): void {
@@ -202,20 +216,27 @@ export class ChutesAndLadders implements Minigame {
     if (this.timeLeft <= 0 || racers.length === 0) this.finish();
   }
 
-  // The buzzer. Finishers are safe on the ledge and can NEVER be culled; of those
-  // still on the board, the lowest `dangerCount` are swallowed by the pit. The
-  // rest live. (Only non-finishers are ever eligible, so reaching the top is
-  // always real safety.)
+  // The buzzer / turns running out. Finishers reached the top and are SAFE — they
+  // can never be culled. Everyone still stuck on the board "didn't make it to
+  // safety in time" and is in danger: the stragglers are eliminated worst-first,
+  // scaled by intensity (gentle early, near-total late), but we always leave at
+  // least one blob standing (the top climber survives if nobody reached the top).
   private finish(): void {
     if (this.done) return;
-    const racers = [...this.climbers.values()]
+    const finishers = [...this.climbers.values()].filter((c) => c.alive && c.finished);
+    const strag = [...this.climbers.values()]
       .filter((c) => c.alive && !c.finished)
       .sort((a, b) => this.standing(a) - this.standing(b)); // worst first
-    const cut = Math.min(this.dangerCount, racers.length);
+
+    // Spare a fraction of the highest stragglers — most early, almost none late —
+    // and never wipe the field: if nobody reached the top, the best climber lives.
+    let spare = Math.round(strag.length * (1 - this.ctx.intensity) * 0.5);
+    if (finishers.length === 0) spare = Math.max(spare, 1);
+    const cut = Math.max(0, strag.length - spare);
     for (let i = 0; i < cut; i++) {
-      const c = racers[i];
+      const c = strag[i];
       c.alive = false;
-      const note = c.square <= 0 ? "Never left the start!" : `Snaked at square ${c.square}`;
+      const note = c.square <= 0 ? "Never left the start!" : `Didn't reach safety — stuck at ${c.square}`;
       this.elimOrder.push({ id: c.id, note }); // worst-out pushed first
       this.fx.push({ kind: "death", x: 0, y: 0, color: "#ff1744", text: c.id });
     }
@@ -254,7 +275,6 @@ export class ChutesAndLadders implements Minigame {
         chutes: this.chutes,
         timeLeft: +this.timeLeft.toFixed(2),
         duration: this.duration,
-        dangerCount: this.dangerCount,
         climbers: [...this.climbers.values()].map((c) => ({
           id: c.id,
           name: c.name,

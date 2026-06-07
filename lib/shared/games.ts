@@ -13,6 +13,15 @@ export interface GameMeta {
   rules: string; // short how-to shown on the intro card
   controls: ControlHint[];
   controlText: string;
+  // How the Game Master's voice should pronounce it (TTS). Defaults to `name`
+  // when omitted — set it when the display name reads badly aloud (e.g. "RPS").
+  spokenName?: string;
+  // Roughly how long a round lasts, shown on the intro card so players know what
+  // they're in for ("how long is this going to take").
+  lengthHint?: string;
+  // Some games only make sense with an even headcount (balanced teams / clean
+  // 1v1 pairings). The Game Master skips these when the field is odd.
+  requiresEven?: boolean;
   minPlayers: number;
   arena: "field" | "bridge" | "rope" | "board" | "duel" | "parlor"; // renderer family
   flavors: string[]; // game-master quips chosen at random
@@ -35,7 +44,8 @@ export const GAMES: Record<GameId, GameMeta> = {
     icon: "🚦",
     rules: "Reach the finish line. While the Doll watches (RED), any movement is fatal. Move only on GREEN. She does not accept appeals.",
     controls: ["move"],
-    controlText: "WASD / Arrows or drag to move. STOP the instant it turns red.",
+    controlText: "W / ↑ runs forward (or drag). A·D dodge between lanes. FREEZE the instant it turns RED.",
+    lengthHint: "~45s",
     minPlayers: 1,
     arena: "field",
     cull: "mid",
@@ -53,7 +63,9 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "Two teams. Touch an ENEMY to freeze them solid; touch a frozen TEAMMATE to thaw them. In the final DEEP FREEZE, thawing stops — anyone frozen at the buzzer is ELIMINATED.",
     controls: ["move", "team"],
     controlText: "Move with WASD / Arrows or drag. Bump enemies to freeze, bump frozen friends to thaw.",
-    minPlayers: 3,
+    lengthHint: "~35s",
+    requiresEven: true,
+    minPlayers: 4,
     arena: "field",
     cull: "low",
     flavors: [
@@ -70,6 +82,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "When a number is called, cram into a room with EXACTLY that many blobs. Wrong-sized groups are eliminated. It's networking, but lethal.",
     controls: ["move"],
     controlText: "Move with WASD / Arrows or drag. Crowd into a room with the right count.",
+    lengthHint: "~40s",
     minPlayers: 4,
     arena: "field",
     cull: "low",
@@ -84,9 +97,10 @@ export const GAMES: Record<GameId, GameMeta> = {
     name: "Glass Stepping Stones",
     tagline: "One tile holds. One doesn't. Gamble with your feet.",
     icon: "🪟",
-    rules: "Cross the bridge one row at a time. Each row has two tiles — one holds, one SHATTERS. Choose before the timer hits zero. Choose wrong and learn to fly.",
+    rules: "One bridge, one hidden safe path. You cross ONE AT A TIME, in line order: the blob up front guesses LEFT or RIGHT for the next pane. Guess right and you step on; guess WRONG and the glass shatters — you're gone, but everyone behind now sees the safe side. Cross, or run out of blobs trying.",
     controls: ["choose"],
-    controlText: "Click / press ← or → to pick the LEFT or RIGHT tile.",
+    controlText: "When it's your turn, press ← / → (or tap) to pick the LEFT or RIGHT pane.",
+    lengthHint: "~30s",
     minPlayers: 1,
     arena: "bridge",
     cull: "mid",
@@ -104,6 +118,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "Two teams. Mash the button to pull the rope your way. The team dragged over the edge is eliminated. Gravity handles the rest.",
     controls: ["tap", "team"],
     controlText: "SMASH the button (or Space / click) as fast as you can!",
+    lengthHint: "~30s",
     minPlayers: 2,
     arena: "rope",
     cull: "high",
@@ -118,9 +133,12 @@ export const GAMES: Record<GameId, GameMeta> = {
     name: "RPS Minus One",
     tagline: "Throw two. Drop one. Outthink a stranger or die trying.",
     icon: "✊✋✌️",
-    rules: "Face an opponent. Pick TWO throws, then DROP one. Standard rock-paper-scissors — losers are eliminated, ties replay.",
+    rules: "Face one opponent. Pick TWO throws, then DROP one. Standard rock-paper-scissors decides it — the loser is eliminated. A TIE (same throw) hurts no one: you both simply throw again until someone wins.",
     controls: ["choose", "duel"] as any,
-    controlText: "Click two throws, then click the one to KEEP.",
+    controlText: "Click two throws, then click the one to KEEP. Tie = throw again, nobody's out.",
+    spokenName: "Rock, Paper, Scissors. Minus one.",
+    lengthHint: "~30s",
+    requiresEven: true,
     minPlayers: 2,
     arena: "duel",
     cull: "high",
@@ -139,6 +157,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "A giant rope sweeps the floor. JUMP at the right moment. Mistime it and you're swept away. It only gets faster. It never gets kinder.",
     controls: ["tap"],
     controlText: "Press SPACE / click / tap to JUMP as the rope passes.",
+    lengthHint: "~40s",
     minPlayers: 1,
     arena: "rope",
     cull: "mid",
@@ -157,6 +176,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "A free-for-all arena. Hurl your boomerang, dodge incoming, and grab wild powerups. Last blob standing survives!",
     controls: ["move", "aim"],
     controlText: "Move with WASD / Arrows. Aim with the mouse, click to THROW. Dash with Shift.",
+    lengthHint: "~45s",
     minPlayers: 2,
     arena: "field",
     cull: "high",
@@ -175,6 +195,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "Grab a ball and hurl it across the line. Anyone hit (no shield) is OUT. Dash to dodge. Wipe out the other team — or just have more blobs left when the buzzer sounds.",
     controls: ["move", "aim"],
     controlText: "WASD move · mouse aim · click / SPACE throw · SHIFT dash to dodge.",
+    lengthHint: "~45s",
     minPlayers: 4,
     arena: "field",
     cull: "mid",
@@ -191,7 +212,8 @@ export const GAMES: Record<GameId, GameMeta> = {
     icon: "🪑",
     rules: "Roam while the music plays. The instant it STOPS, race to a chair. One blob per chair — anyone left standing is ELIMINATED. A chair vanishes each round, because scarcity is the point.",
     controls: ["move"],
-    controlText: "Move with WASD / Arrows or drag. When the music stops, sprint to a chair!",
+    controlText: "Move with WASD / Arrows or drag. The chairs only appear when the music STOPS — then sprint!",
+    lengthHint: "~40s",
     minPlayers: 3,
     arena: "field",
     cull: "low",
@@ -208,7 +230,8 @@ export const GAMES: Record<GameId, GameMeta> = {
     icon: "🎁",
     rules: "The lights go out and gifts are slipped between blobs. If you RECEIVED one, guess who gave it: guess right and the giver is caught & OUT; guess wrong and YOU'RE out. Sneaky givers, stay hidden.",
     controls: ["choose"],
-    controlText: "Tap the blob you think slipped you the gift.",
+    controlText: "Watch the gifts get slipped in the dark, then tap the blob you think gave you yours.",
+    lengthHint: "~30s",
     minPlayers: 4,
     arena: "parlor",
     cull: "high",
@@ -226,6 +249,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "Everyone disguises as a random prop and blends into a room full of identical decoys. ONE Seeker stalks the room with a blade — but only a few swings before it dulls. Get skewered and you're boxed; hold perfectly still and you're just a barrel. (Moving makes you twitch — and twitching gets noticed.)",
     controls: ["move"],
     controlText: "Hiders: WASD / Arrows to creep — but HOLD STILL to blend in. Seeker: move + SPACE / click / SWING to slash the nearest object.",
+    lengthHint: "~40s",
     minPlayers: 3,
     arena: "field",
     cull: "mid",
@@ -241,12 +265,13 @@ export const GAMES: Record<GameId, GameMeta> = {
     name: "Chutes & Ladders",
     tagline: "Climb the ladders. Dread the snakes. Pray to the dice.",
     icon: "🪜",
-    rules: "Roll your way up to square 100. Ladders launch you up; snakes drag you down. It's pure dumb luck — and when the clock runs out, whoever's lowest on the board gets swallowed. Keep rolling. Climb fast.",
+    rules: "RACE to square 100 — that's SAFETY. Ladders launch you toward it; snakes drag you down and might just EAT you (a bite can be fatal). When the clock runs out, every blob still stuck on the board — not safe at the top — is eliminated. Roll fast. Climb faster.",
     controls: ["tap"],
-    controlText: "SMASH the button (or tap SPACE) to ROLL the die. Keep rolling — the stragglers get eaten.",
+    controlText: "SMASH the button (or tap SPACE) to ROLL. 🪜 climb to safety · 🐍 snakes can KILL · reach the top or you're out.",
+    lengthHint: "~25s",
     minPlayers: 2,
     arena: "board",
-    cull: "mid",
+    cull: "high",
     flavors: [
       "A children's board game, now with a body count. Roll well or roll over.",
       "No skill. No strategy. Just dice and the slow creep of doom. Good luck — we mean that literally.",
@@ -262,6 +287,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "The Game Master barks an order — do the matching move before the timer runs out. 🙌 head · 👃 nose · 👀 blink · 🤸 flip · ⬆️ jump. On 🧊 FREEZE, touch NOTHING. Wrong move, too slow, or one nervous twitch on freeze: eliminated.",
     controls: ["choose"],
     controlText: "W pat head · A touch nose · S blink · D flip · SPACE jump — and FREEZE means hands OFF.",
+    lengthHint: "~30s",
     minPlayers: 1,
     arena: "parlor",
     cull: "mid",
@@ -280,6 +306,7 @@ export const GAMES: Record<GameId, GameMeta> = {
     rules: "You're issued one balloon in your colors. Don't let it touch the floor and don't let it get popped — either one and you're done. Bump it to bat it back up; tap SPIKE to jab a rival's balloon and burst it. The air keeps getting heavier.",
     controls: ["move", "tap"],
     controlText: "WASD / Arrows or drag to move under your balloon (you auto-bat it up). SPACE / SPIKE to pop a rival's.",
+    lengthHint: "~40s",
     minPlayers: 2,
     arena: "field",
     cull: "mid",
@@ -297,7 +324,8 @@ export const GAMES: Record<GameId, GameMeta> = {
     icon: "🌋",
     rules: "THE FINALE. The floor is lava and the islands sink into it one by one. Hop between them to stay off the floor, grab powerups, and shove rivals into the magma. The islands run out — last blob not-on-fire is CHAMPION.",
     controls: ["move"],
-    controlText: "Move with WASD / Arrows or drag. Hop between the sinking islands — and bump rivals into the lava!",
+    controlText: "Move with WASD / Arrows or drag. Hop between the sinking islands — RAM rivals to shove them into the lava!",
+    lengthHint: "~1 min",
     // The series culls down to a 1v1 for the finale, so it must run with 2.
     minPlayers: 2,
     arena: "field",

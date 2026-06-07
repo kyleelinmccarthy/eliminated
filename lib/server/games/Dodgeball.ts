@@ -42,7 +42,7 @@ export class Dodgeball extends ArenaGame {
 
   constructor(ctx: GameContext) {
     super(ctx);
-    this.powerups = new PowerupField(ctx.rng, { every: 5, max: 3, goodWeight: 0.62 });
+    this.powerups = new PowerupField(ctx.rng, { every: 3, max: 5, goodWeight: 0.58 });
   }
 
   start(): void {

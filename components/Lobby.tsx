@@ -189,7 +189,7 @@ export function Lobby() {
             <div className="cfg-row">
               <label className="tag"># of Games</label>
               <div className="seg">
-                {(["mystery", 3, 5, 8] as const).map((r) => (
+                {(["mystery", 1, 3, 5, 7, 10, 12] as const).map((r) => (
                   <button key={String(r)} className={room.config.rounds === r ? "on" : ""} disabled={!isHost} onClick={() => patch({ rounds: r })}>
                     {r === "mystery" ? "❓ Mystery" : r}
                   </button>

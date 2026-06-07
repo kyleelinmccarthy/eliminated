@@ -67,6 +67,10 @@ export class GameRoom {
   currentNight = false; // is the current round a dark (night-mode) round
   lastGame: GameId | null = null;
   lastMapId: string | null = null;
+  // Every game already played THIS series. We draw from the unplayed games first
+  // so a short gauntlet shows real variety instead of randomly repeating a couple
+  // while never touching others.
+  private playedGames: GameId[] = [];
   private game: Minigame | null = null;
   private participants: string[] = []; // player ids in current round
 
@@ -282,6 +286,7 @@ export class GameRoom {
     this.roundIndex = 0;
     this.lastGame = null;
     this.lastMapId = null;
+    this.playedGames = [];
 
     if (this.config.rounds === "mystery") {
       this.totalRounds = 3 + Math.floor(this.rng() * 4); // 3..6, hidden
@@ -338,8 +343,11 @@ export class GameRoom {
 
   private chooseGame(aliveCount: number): GameId {
     const allowList = this.config.allowedGames.length ? this.config.allowedGames : ALL_GAME_IDS;
-    const isAllowed = (g: GameId) => allowList.includes(g);
-    const playable = (g: GameId) => minPlayersFor(g) <= aliveCount;
+    // A game is playable only if it has enough blobs AND — for team / 1v1 games
+    // flagged requiresEven (Freeze Tag, RPS Minus One) — the field is even, so
+    // teams/pairings come out balanced (no lopsided 2v1 or free byes).
+    const playable = (g: GameId) =>
+      minPlayersFor(g) <= aliveCount && (!GAMES[g].requiresEven || aliveCount % 2 === 0);
 
     // The final round is always a decisive finale — a game that can crown a
     // single survivor (king of the hill, or any finale-CAPABLE game like the
@@ -366,8 +374,12 @@ export class GameRoom {
       if (gentle.length) pool = gentle;
     }
 
-    const noRepeat = pool.filter((g) => g !== this.lastGame);
-    const finalPool = noRepeat.length ? noRepeat : pool;
+    // Variety first: draw from games not yet played this series. Only once the
+    // pool is exhausted do repeats become possible — and even then never the very
+    // last game back-to-back.
+    const fresh = pool.filter((g) => !this.playedGames.includes(g));
+    let finalPool = fresh.length ? fresh : pool.filter((g) => g !== this.lastGame);
+    if (!finalPool.length) finalPool = pool;
     return pick(this.rng, finalPool);
   }
 
@@ -386,6 +398,7 @@ export class GameRoom {
     const mapId = this.chooseMap();
     this.currentGame = game;
     this.currentMapId = mapId;
+    if (!this.playedGames.includes(game)) this.playedGames.push(game);
     const meta = gameMeta(game);
     // Night mode: a hardcore modifier that darkens random rounds. Only games
     // where local vision is fair & fun qualify (not e.g. Red Light, which needs

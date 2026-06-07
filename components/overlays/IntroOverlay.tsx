@@ -17,9 +17,10 @@ export function IntroOverlay() {
     if (!intro || announced.current) return;
     announced.current = true;
     const g = GAMES[intro.game];
+    const spoken = g.spokenName ?? g.name;
     let line = intro.isFinale
-      ? `The final game. ${g.name}.`
-      : `Game ${intro.roundNumber}. ${g.name}.`;
+      ? `The final game. ${spoken}.`
+      : `Game ${intro.roundNumber}. ${spoken}.`;
     if (intro.night) line += " Lights out.";
     audio.speak(line);
   }, [intro]);
@@ -54,6 +55,7 @@ export function IntroOverlay() {
       <h1 className="gname shadowtext">{g.name}</h1>
       <p className="tagline">{g.tagline}</p>
       <div className="rules card">{g.rules}</div>
+      {g.lengthHint && <div className="length-hint">⏱ This round runs about {g.lengthHint.replace(/^~/, "")} — survive the clock.</div>}
       <p className="flavor">“{intro.flavor}”</p>
       <div className="controls-hint">{g.controlText}</div>
       <div className={`count ${secs <= 3 ? "hot" : ""}`}>{secs > 0 ? secs : "GO!"}</div>
@@ -119,6 +121,17 @@ export function IntroOverlay() {
           max-width: 520px;
           margin-top: 10px;
           font-size: 0.95rem;
+        }
+        .length-hint {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: 0.82rem;
+          color: var(--yellow);
+          background: rgba(255, 213, 79, 0.12);
+          border: 1px solid rgba(255, 213, 79, 0.4);
+          border-radius: 999px;
+          padding: 3px 14px;
+          margin-top: 6px;
         }
         .flavor {
           color: var(--pink);

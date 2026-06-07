@@ -99,9 +99,10 @@ export class PropHunt extends ArenaGame {
     // The blade only lands a handful of times — never enough to clear the room.
     this.maxSwings = clamp(Math.round(this.hidersTotal * (0.4 + this.ctx.intensity * 0.4)), 2, Math.max(2, this.hidersTotal));
     this.swings = this.maxSwings;
-    // The Seeker's body-count quota: gentle early, biting late. Never more than
-    // they could possibly hit, and never the whole room (so someone survives).
-    this.quota = clamp(1 + Math.floor(this.ctx.intensity * 2), 1, Math.min(this.maxSwings, this.hidersTotal));
+    // The Seeker's body-count quota: ALWAYS at least 1 (find nobody and the
+    // organizers box the Seeker too), scaling up a little late in a series. Never
+    // more than they could possibly hit, and never the whole room.
+    this.quota = Math.max(1, Math.min(1 + Math.floor(this.ctx.intensity * 2), this.maxSwings, this.hidersTotal));
 
     this.ctx.toast("Disguise yourself! Match the furniture. The Seeker is counting…", "info");
   }
@@ -224,7 +225,10 @@ export class PropHunt extends ArenaGame {
       a.data!.exposed = 0;
     }
     this.goal.repick = 0;
-    this.ctx.toast("The Seeker draws the blade. HOLD STILL.", "bad");
+    this.ctx.toast(
+      `The Seeker draws the blade — they must skewer at least ${this.quota} or get boxed themselves. HOLD STILL.`,
+      "bad",
+    );
   }
 
   private endHunt(): void {

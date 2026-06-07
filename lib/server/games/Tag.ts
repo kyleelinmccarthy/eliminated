@@ -26,10 +26,14 @@ export class Tag extends ArenaGame {
 
   constructor(ctx: GameContext) {
     super(ctx);
-    this.powerups = new PowerupField(ctx.rng, { every: 4, max: 4, goodWeight: 0.6 });
+    this.powerups = new PowerupField(ctx.rng, { every: 2.5, max: 6, goodWeight: 0.55 });
   }
 
   start(): void {
+    // Freeze Tag ran frantically fast — drop the chase speed below the shared
+    // default so freezing and thawing read as deliberate moves, not a blur. Bots
+    // share moveActor, so they slow down too.
+    this.speed = 175;
     const ps = shuffle(this.ctx.rng, this.ctx.players);
     ps.forEach((p, i) => {
       const team = i % 2;
