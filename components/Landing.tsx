@@ -311,7 +311,10 @@ export function Landing() {
           margin-bottom: 6px;
           border-bottom: 1px solid rgba(236, 240, 245, 0.2);
           position: relative;
-          z-index: 1;
+          /* Above the hero (also z-index:1) so the account dropdown, which drops
+             down past the navbar into the hero region, paints over page content
+             instead of being covered by it. Stays below toasts (100)/modals (200). */
+          z-index: 60;
         }
         .logo-mark {
           display: block;

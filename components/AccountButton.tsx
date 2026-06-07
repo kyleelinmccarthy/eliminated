@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { authClient } from "@/lib/client/auth-client";
 import { useGame, net } from "@/lib/client/net";
@@ -40,6 +40,26 @@ export function AccountButton({
 
   // Portal target (document.body) only exists on the client.
   useEffect(() => setMounted(true), []);
+
+  // Close the account dropdown on an outside click or Escape. A document-level
+  // listener (rather than a full-screen backdrop div) keeps the rest of the nav
+  // clickable while the menu is open and avoids stacking-context pitfalls.
+  const acctRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDown(e: PointerEvent) {
+      if (acctRef.current && !acctRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // Is "Continue with Google" configured on the server?
   useEffect(() => {
@@ -157,7 +177,7 @@ export function AccountButton({
     if (variant === "save") return null;
     const u = session.user;
     return (
-      <div className="acct">
+      <div className="acct" ref={acctRef}>
         <button
           className="pill chip"
           title={u.email}
@@ -170,8 +190,6 @@ export function AccountButton({
           <span className="caret" aria-hidden>▾</span>
         </button>
         {menuOpen && (
-          <>
-            <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
             <div className="menu" role="menu">
               {!u.emailVerified && (
                 <button
@@ -207,7 +225,6 @@ export function AccountButton({
                 Sign out
               </button>
             </div>
-          </>
         )}
         <AccountSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         {notice && <span className="tiny good float">{notice}</span>}
@@ -233,11 +250,6 @@ export function AccountButton({
           .dot {
             font-size: 0.8em;
             margin-left: 2px;
-          }
-          .menu-backdrop {
-            position: fixed;
-            inset: 0;
-            z-index: 50;
           }
           .menu {
             position: absolute;
