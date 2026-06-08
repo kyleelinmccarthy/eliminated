@@ -1,6 +1,10 @@
 // Combined Next.js + WebSocket game server. One process, one port — deployable
 // to Railway as a single service. (For a split deploy, point NEXT_PUBLIC_WS_URL
 // at this server and host the Next build separately.)
+//
+// MUST be first: loads .env into process.env before db.ts/auth.ts (which read
+// DATABASE_URL at boot) evaluate, so this context uses the same DB as Next does.
+import "./lib/server/load-env";
 import { createServer } from "node:http";
 import { parse } from "node:url";
 import next from "next";

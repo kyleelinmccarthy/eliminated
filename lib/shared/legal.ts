@@ -24,6 +24,18 @@ export interface PatchEntry {
 // smell sincerity and it frightens them.
 export const CHANGELOG: PatchEntry[] = [
   {
+    version: "1.2.0",
+    date: "June 8, 2026",
+    tag: "Feature",
+    title: "Pull Up a Chair (The Gallery)",
+    notes: [
+      "👁 SPECTATE: don't feel like dying today? In the lobby, hit “Spectate & bet instead” to sit the whole run out. You never take the field, you never get culled — you just watch the little blobs suffer in peace.",
+      "🎰 THE GALLERY: spectating isn't free entertainment, it's a casino. Bet your real saved Marbles on who you think wins it all and pocket the winnings — odds scale with the field (call it from a crowd of five and it pays 5×), settled the instant a champion is crowned.",
+      "Unlike the eliminated-player Dead Pool, the Gallery is open in BOTH Casual and Hardcore — and you're wagering your actual bank, not house chips. Win big, or watch your Marbles walk off with someone else's blob. Your pick gets boxed up mid-run? You're warned to re-bet before the finale.",
+      "Spectators don't count toward starting a match — load the lobby with watchers and the host can still kick things off (just keep enough contestants or bot-fill on). A whole room of vultures and six bots? Now legal.",
+    ],
+  },
+  {
     version: "1.1.0",
     date: "June 7, 2026",
     tag: "Feature",

@@ -8,9 +8,12 @@ import { formatPlayerNumber } from "@/lib/shared/util";
 import { BlobAvatar } from "./BlobAvatar";
 import { audio } from "@/lib/client/audio";
 
-// Shown to an eliminated Hardcore spectator while a round plays out: wager your
-// hard-won series Marbles on who'll be the last blob standing. Odds scale with
-// the field — call it while the crowd's big and it pays big. Settled at series end.
+// The betting window shown to anyone watching a round play out: wager Marbles on
+// who'll be the last blob standing. Two kinds of bettor share it —
+//   • an eliminated Hardcore player, staking the Marbles they earned this series;
+//   • a gallery spectator, staking their real saved bank.
+// Odds scale with the field — call it while the crowd's big and it pays big.
+// Settled at series end.
 export function DeadPool() {
   const room = useGame((s) => s.room);
   const youId = useGame((s) => s.youId);
@@ -18,10 +21,12 @@ export function DeadPool() {
   const [stake, setStake] = useState(0); // 0 = use the suggested default
 
   const me = room?.players.find((p) => p.id === youId);
+  const isSpectator = !!me?.isSpectator;
   const contenders = useMemo(() => (room?.players ?? []).filter((p) => p.alive), [room?.players]);
   const variants = useMemo(() => characterVariants(room?.players ?? []), [room?.players]);
 
-  const earnings = me?.marblesEarned ?? 0;
+  // A spectator risks their real bank; an eliminated player risks series earnings.
+  const earnings = (isSpectator ? me?.bankroll : me?.marblesEarned) ?? 0;
   const myBet = me?.bet;
   const mult = betMultiplier(contenders.length);
   const suggested = Math.min(earnings, Math.max(MIN_STAKE, 50));
@@ -50,11 +55,18 @@ export function DeadPool() {
   return (
     <div className="deadpool">
       <div className="dp-head">
-        <span className="dp-title">☠️ The Dead Pool</span>
+        <span className="dp-title">{isSpectator ? "🎰 The Gallery" : "☠️ The Dead Pool"}</span>
         <span className="dp-bank">
-          your purse: <strong>{earnings}</strong> {CURRENCY_ICON}
+          {isSpectator ? "your bank" : "your purse"}: <strong>{earnings}</strong> {CURRENCY_ICON}
         </span>
       </div>
+
+      {isSpectator && (
+        <div className="dp-spec-note">
+          👁 You sat this one out — now put your <strong>real Marbles</strong> where your mouth is.
+          Win and they're yours; lose and they're gone.
+        </div>
+      )}
 
       {myBet && (
         <div className="dp-current">
@@ -71,7 +83,9 @@ export function DeadPool() {
         <div className="dp-none">
           {contenders.length < 2
             ? "The winner's all but decided — no bets left to make. Enjoy the carnage."
-            : `Earn at least ${MIN_STAKE} ${CURRENCY_ICON} alive before you can gamble it dead.`}
+            : isSpectator
+              ? `You need at least ${MIN_STAKE} ${CURRENCY_ICON} in the bank to bet. Go play a series and earn some first.`
+              : `Earn at least ${MIN_STAKE} ${CURRENCY_ICON} alive before you can gamble it dead.`}
         </div>
       ) : (
         <>
@@ -159,6 +173,18 @@ export function DeadPool() {
           border-radius: 10px;
           padding: 6px 10px;
           line-height: 1.4;
+        }
+        .dp-spec-note {
+          font-size: 0.76rem;
+          color: var(--ink-dim);
+          line-height: 1.4;
+          background: rgba(31, 227, 194, 0.08);
+          border: 1px solid rgba(31, 227, 194, 0.32);
+          border-radius: 10px;
+          padding: 6px 10px;
+        }
+        .dp-spec-note strong {
+          color: var(--teal);
         }
         .dp-pull {
           margin-left: 8px;

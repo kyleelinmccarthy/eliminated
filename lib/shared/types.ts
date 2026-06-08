@@ -59,12 +59,14 @@ export interface PublicPlayer {
   isBot: boolean;
   isHost: boolean;
   connected: boolean;
+  isSpectator: boolean; // sitting the series out — watching & betting, never playing
   alive: boolean; // alive in the current series (hardcore) / this round
   marblesEarned: number; // earned this series
+  bankroll?: number; // spectators only: live betting balance (their real Marbles)
   points: number; // running series score (casual ranking / tiebreaks)
   title?: string;
   emote?: { kind: string; at: number };
-  bet?: PublicBet; // Dead Pool wager, if this (eliminated) blob has placed one
+  bet?: PublicBet; // Dead Pool wager, if this (eliminated player or spectator) has placed one
 }
 
 export interface RoomMetaState {

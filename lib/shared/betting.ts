@@ -47,24 +47,35 @@ export function clampStake(stake: number, available: number): number {
 
 export interface BetContext {
   mode: "hardcore" | "casual";
-  bettorAlive: boolean; // you must be eliminated to bet
+  // A pure spectator (sat the series out) may bet in any mode, stakes their real
+  // saved Marbles, and is never "in" the field — so the Hardcore-only and
+  // must-be-eliminated gates don't apply to them.
+  bettorIsSpectator: boolean;
+  bettorAlive: boolean; // eliminated players must be dead to bet
   isSelf: boolean; // can't back a corpse — and you're one
   targetAlive: boolean; // your pick must still be in the running
   aliveCount: number; // contenders still standing
-  available: number; // your series earnings (the most you can stake)
+  available: number; // the most you can stake (spectator: bank; player: series earnings)
   stake: number; // attempted wager
 }
 
 // Returns a player-facing rejection reason, or null if the bet is legal. Centralizing
 // this keeps the server's guard and the client's button-disabling in lockstep.
 export function betRejectionReason(c: BetContext): string | null {
-  if (c.mode !== "hardcore") return "Betting is a Hardcore-only spectator sport.";
-  if (c.bettorAlive) return "Only the eliminated may bet. Get yourself killed first.";
+  // Eliminated-player betting (the original Dead Pool) is a Hardcore-only blood
+  // sport and you have to be dead. Spectators skip both gates — they bought a
+  // seat in the gallery precisely to wager on the carnage.
+  if (!c.bettorIsSpectator) {
+    if (c.mode !== "hardcore") return "Betting is a Hardcore-only spectator sport.";
+    if (c.bettorAlive) return "Only the eliminated may bet. Get yourself killed first.";
+  }
   if (c.aliveCount < 2) return "Nothing left to bet on — the winner's all but decided.";
   if (c.isSelf) return "You can't bet on yourself. You're in a box.";
   if (!c.targetAlive) return "That blob's already boxed up. Back one who's still breathing.";
   if (clampStake(c.stake, c.available) < MIN_STAKE) {
-    return `Minimum wager is ${MIN_STAKE} ◍. Earn a little before you gamble it.`;
+    return c.bettorIsSpectator
+      ? `Minimum wager is ${MIN_STAKE} ◍. Win some Marbles first, then come gamble them.`
+      : `Minimum wager is ${MIN_STAKE} ◍. Earn a little before you gamble it.`;
   }
   return null;
 }

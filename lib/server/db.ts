@@ -275,10 +275,13 @@ export async function mergeGuestIntoAccount(
 export interface SeriesReward {
   clientId: string;
   name: string;
-  marbles: number;
+  marbles: number; // contestants: earned this series; spectators: net wager swing (signed)
   won: boolean;
   roundsSurvived: number;
   title: string;
+  // A gallery spectator: only their Marble swing is banked. They didn't compete,
+  // so this never bumps gamesPlayed / wins / roundsSurvived / title.
+  spectator?: boolean;
 }
 
 export async function recordSeries(rewards: SeriesReward[]): Promise<void> {
@@ -286,11 +289,15 @@ export async function recordSeries(rewards: SeriesReward[]): Promise<void> {
   for (const rw of rewards) {
     const row = (await loadRow(rw.clientId)) ?? defaultRow(rw.clientId, rw.name);
     row.name = rw.name || row.name;
-    row.marbles += rw.marbles;
-    row.wins += rw.won ? 1 : 0;
-    row.gamesPlayed += 1;
-    row.roundsSurvived += rw.roundsSurvived;
-    if (rw.won) row.bestTitle = rw.title;
+    // Marbles always apply (a spectator's swing can be negative); never let a
+    // string of bad bets drive the bank below zero.
+    row.marbles = Math.max(0, row.marbles + rw.marbles);
+    if (!rw.spectator) {
+      row.wins += rw.won ? 1 : 0;
+      row.gamesPlayed += 1;
+      row.roundsSurvived += rw.roundsSurvived;
+      if (rw.won) row.bestTitle = rw.title;
+    }
     // auto-unlock characters as marbles cross thresholds is handled client-side
     await saveRow(row);
   }
@@ -363,13 +370,27 @@ export async function recentFeedback(limit = 20): Promise<StoredFeedback[]> {
   return [...feedbackMemory].slice(-limit).reverse();
 }
 
+// Only real players belong on the board: accounts (clientId "acct_…") and browser
+// guests (clientId "c_…", minted in lib/client/net.ts). Everything else is a
+// non-player row — bots ("botc_…") and simulation/smoke-test fixtures ("s_…",
+// "v_…", "smoke_…", etc.) — and must never be ranked. recordSeries already skips
+// bots at write time; this is the read-side guard that also keeps any stray
+// synthetic rows out of the standings.
+function isRealPlayerKey(clientId: string): boolean {
+  return clientId.startsWith("acct_") || clientId.startsWith("c_");
+}
+
 export async function leaderboard(limit = 25): Promise<LeaderRow[]> {
   await initDb();
   if (client) {
     const res = await client.execute({
       // Skip guest rows whose progress was merged into an account (their marbles
-      // now live on the account row — counting both would double-list a player).
-      sql: "SELECT name, marbles, wins, gamesPlayed, bestTitle FROM profiles WHERE mergedInto IS NULL ORDER BY marbles DESC, wins DESC LIMIT ?",
+      // now live on the account row — counting both would double-list a player),
+      // and keep only real-player keys (escaped LIKE so "_" stays literal).
+      sql: `SELECT name, marbles, wins, gamesPlayed, bestTitle FROM profiles
+            WHERE mergedInto IS NULL
+              AND (clientId LIKE 'acct\\_%' ESCAPE '\\' OR clientId LIKE 'c\\_%' ESCAPE '\\')
+            ORDER BY marbles DESC, wins DESC LIMIT ?`,
       args: [limit],
     });
     return res.rows.map((r: any) => ({
@@ -381,7 +402,7 @@ export async function leaderboard(limit = 25): Promise<LeaderRow[]> {
     }));
   }
   return [...memory.values()]
-    .filter((r) => !r.mergedInto)
+    .filter((r) => !r.mergedInto && isRealPlayerKey(r.clientId))
     .sort((a, b) => b.marbles - a.marbles || b.wins - a.wins)
     .slice(0, limit)
     .map((r) => ({ name: r.name, marbles: r.marbles, wins: r.wins, gamesPlayed: r.gamesPlayed, bestTitle: r.bestTitle }));

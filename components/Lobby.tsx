@@ -70,9 +70,13 @@ export function Lobby() {
 
   const isHost = youId === room.hostId;
   const me = room.players.find((p) => p.id === youId);
+  const iSpectate = !!me?.isSpectator;
   const emoteBubbles = useEmoteBubbles(room.players);
   const humans = room.players.filter((p) => !p.isBot);
-  const canStart = room.players.length >= MIN_TO_START || room.config.botFill;
+  const contestants = room.players.filter((p) => !p.isSpectator);
+  const spectators = room.players.filter((p) => p.isSpectator);
+  // Spectators don't fill the field — only contestants (or bot-fill) can start a run.
+  const canStart = contestants.length >= MIN_TO_START || room.config.botFill;
   // accent rims so two players on the same blob aren't a confusing pair
   const variants = characterVariants(room.players);
   const currentChar = CHARACTERS.find((c) => c.id === characterId);
@@ -120,7 +124,11 @@ export function Lobby() {
         <div className="panel players-panel">
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h3>
-              Contestants <span className="dim">({room.players.length} — for now)</span>
+              Contestants{" "}
+              <span className="dim">
+                ({contestants.length} — for now
+                {spectators.length > 0 ? `, ${spectators.length} watching 👁` : ""})
+              </span>
             </h3>
             {isHost && (
               <button className="btn sm teal" onClick={() => (audio.sfx("blip"), net.addBot())}>
@@ -130,7 +138,7 @@ export function Lobby() {
           </div>
           <div className="players">
             {room.players.map((p) => (
-              <div key={p.id} className={`pcard ${p.id === youId ? "me" : ""} ${!p.connected ? "off" : ""}`}>
+              <div key={p.id} className={`pcard ${p.id === youId ? "me" : ""} ${!p.connected ? "off" : ""} ${p.isSpectator ? "spec" : ""}`}>
                 {emoteBubbles.has(p.id) && (
                   <div className="emote-bubble" key={emoteBubbles.get(p.id)!.key}>
                     {emoteBubbles.get(p.id)!.kind}
@@ -146,7 +154,13 @@ export function Lobby() {
                   {p.isBot && <span className="bot-tag">BOT</span>}
                 </div>
                 <div className="pcard-status">
-                  {p.ready ? <span className="rdy">READY</span> : <span className="dim tiny">waiting…</span>}
+                  {p.isSpectator ? (
+                    <span className="spec-tag">👁 SPECTATING</span>
+                  ) : p.ready ? (
+                    <span className="rdy">READY</span>
+                  ) : (
+                    <span className="dim tiny">waiting…</span>
+                  )}
                 </div>
                 {isHost && p.id !== youId && (
                   <button className="kick" onClick={() => (p.isBot ? net.removeBot(p.id) : net.kick(p.id))} title="Remove">
@@ -285,8 +299,12 @@ export function Lobby() {
                 <button className="btn pink big" style={{ width: "100%" }} disabled={!canStart} onClick={() => (audio.sfx("drum"), net.start())}>
                   ▶ Begin the Trials
                 </button>
-                {!canStart && <div className="tiny dim center" style={{ textAlign: "center" }}>You need at least {MIN_TO_START} blobs to have a proper massacre. Add a friend or enable bot-fill.</div>}
+                {!canStart && <div className="tiny dim center" style={{ textAlign: "center" }}>You need at least {MIN_TO_START} contestants for a proper massacre. Add a friend, enable bot-fill, or leave the gallery.</div>}
               </>
+            ) : iSpectate ? (
+              <div className="tiny dim center" style={{ textAlign: "center" }}>
+                👁 You're in the gallery. The host pulls the trigger — you just watch (and wager).
+              </div>
             ) : (
               <>
                 <button
@@ -299,8 +317,20 @@ export function Lobby() {
                 <div className="tiny dim center" style={{ textAlign: "center" }}>Waiting for the host to pull the trigger…</div>
               </>
             )}
-            <div className="tiny dim center" style={{ textAlign: "center", marginTop: 8 }}>
-              Win {CURRENCY} {CURRENCY_ICON} and eternal bragging rights. {humans.length} human{humans.length === 1 ? "" : "s"} present, all of them expendable.
+
+            {/* Sit it out: watch the carnage and bet your Marbles on who survives. */}
+            <button
+              className={`btn sm spectate-toggle ${iSpectate ? "teal" : "ghost"}`}
+              style={{ width: "100%" }}
+              onClick={() => (audio.sfx("blip"), net.setSpectate(!iSpectate))}
+            >
+              {iSpectate ? "🎮 Get in the arena & play" : "👁 Spectate & bet instead"}
+            </button>
+
+            <div className="tiny dim center" style={{ textAlign: "center", marginTop: 4 }}>
+              {iSpectate
+                ? `Back a blob to win it all and pocket their winnings. Bet your real ${CURRENCY_ICON} — win big or lose it all.`
+                : `Win ${CURRENCY} ${CURRENCY_ICON} and eternal bragging rights. ${humans.length} human${humans.length === 1 ? "" : "s"} present, all of them expendable.`}
             </div>
           </div>
 
@@ -391,6 +421,20 @@ export function Lobby() {
         }
         .pcard.off {
           opacity: 0.5;
+        }
+        .pcard.spec {
+          border-color: var(--teal);
+          border-style: dashed;
+          background: rgba(31, 227, 194, 0.07);
+        }
+        .spec-tag {
+          color: var(--teal);
+          font-weight: 800;
+          font-size: 0.7rem;
+          letter-spacing: 0.5px;
+        }
+        .spectate-toggle {
+          margin-top: 4px;
         }
         .pcard-name {
           font-family: var(--font-display);

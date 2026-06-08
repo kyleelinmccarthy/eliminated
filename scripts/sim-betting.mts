@@ -51,9 +51,10 @@ check(clampStake(NaN, 100) === 0, "NaN stake clamps to 0");
 check(clampStake(33.9, 100) === 33, "stake is floored to a whole marble");
 check(clampStake(50, -10) === 0, "no earnings → nothing to stake");
 
-// ---- rejection rules ----
+// ---- rejection rules: eliminated-player Dead Pool (Hardcore only) ----
 const base: BetContext = {
   mode: "hardcore",
+  bettorIsSpectator: false,
   bettorAlive: false,
   isSelf: false,
   targetAlive: true,
@@ -62,7 +63,7 @@ const base: BetContext = {
   stake: 50,
 };
 check(betRejectionReason(base) === null, "a legal wager is accepted");
-check(!!betRejectionReason({ ...base, mode: "casual" }), "casual mode is rejected");
+check(!!betRejectionReason({ ...base, mode: "casual" }), "casual mode is rejected for players");
 check(!!betRejectionReason({ ...base, bettorAlive: true }), "the living can't bet");
 check(!!betRejectionReason({ ...base, aliveCount: 1 }), "no bet once the winner's decided");
 check(!!betRejectionReason({ ...base, isSelf: true }), "can't back yourself");
@@ -71,6 +72,24 @@ check(!!betRejectionReason({ ...base, stake: MIN_STAKE - 1 }), "below the minimu
 check(
   betRejectionReason({ ...base, stake: 9999 }) === null,
   "an over-stake is clamped, not rejected (UI caps it to earnings)",
+);
+
+// ---- rejection rules: gallery spectator (any mode, stakes their bank) ----
+const spec: BetContext = { ...base, bettorIsSpectator: true };
+check(betRejectionReason(spec) === null, "a spectator's legal wager is accepted");
+check(
+  betRejectionReason({ ...spec, mode: "casual" }) === null,
+  "spectators may bet in Casual too — not a Hardcore-only privilege",
+);
+check(
+  betRejectionReason({ ...spec, bettorAlive: true }) === null,
+  "the must-be-eliminated gate doesn't apply to spectators (they never play)",
+);
+check(!!betRejectionReason({ ...spec, aliveCount: 1 }), "spectator: nothing to bet on at 1 left");
+check(!!betRejectionReason({ ...spec, targetAlive: false }), "spectator: can't back a dead blob");
+check(
+  !!betRejectionReason({ ...spec, available: MIN_STAKE - 1 }),
+  "spectator with an empty bank can't bet",
 );
 
 if (failures) {

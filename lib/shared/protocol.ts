@@ -16,7 +16,8 @@ export type ClientMessage =
   | { t: "setName"; name: string }
   | { t: "setCharacter"; characterId: string }
   | { t: "setAccessories"; accessories: string[] } // equip/unequip cosmetics (lobby)
-  | { t: "placeBet"; targetId: string; stake: number } // Dead Pool wager (hardcore spectator)
+  | { t: "setSpectate"; on: boolean } // sit the series out to watch & bet (lobby)
+  | { t: "placeBet"; targetId: string; stake: number } // Dead Pool wager (eliminated player or spectator)
   | { t: "cancelBet" }
   | { t: "setReady"; ready: boolean }
   | { t: "chat"; text: string }

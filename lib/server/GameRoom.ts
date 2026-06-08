@@ -29,7 +29,7 @@ import { ACCESSORIES, sanitizeEquipped } from "../shared/accessories";
 import { betMultiplier, betRejectionReason, clampStake, settleBet } from "../shared/betting";
 import { createMinigame, minPlayersFor } from "./games/registry";
 import type { Minigame, GameContext } from "./games/Minigame";
-import { recordSeries, type SeriesReward } from "./db";
+import { recordSeries, getOrCreateProfile, type SeriesReward } from "./db";
 
 const INTRO_MS = 5400;
 // After the reveal, the board is shown frozen for this long while a "3·2·1·GO"
@@ -233,6 +233,16 @@ export class GameRoom {
           this.markDirty();
         }
         break;
+      case "setSpectate":
+        // Opt in/out of the gallery — only in the lobby, and never the only thing
+        // keeping a series startable (the host's Begin gate handles that). Bots
+        // can't spectate.
+        if (this.phase === "lobby" && !p.isBot) {
+          p.isSpectator = msg.on;
+          if (p.isSpectator) p.ready = false;
+          this.markDirty();
+        }
+        break;
       case "placeBet":
         this.placeBet(p, msg.targetId, msg.stake);
         break;
@@ -325,20 +335,24 @@ export class GameRoom {
     if (this.phase === "lobby" || this.phase === "seriesResult") return;
     const target = this.players.get(targetId);
     const aliveCount = this.alivePlayers().length;
+    // A spectator risks their real bank (bankroll); an eliminated player risks the
+    // Marbles they earned alive this series.
+    const available = p.isSpectator ? p.bankroll : p.marblesEarned;
     const reason = betRejectionReason({
       mode: this.config.mode,
+      bettorIsSpectator: p.isSpectator,
       bettorAlive: p.alive,
       isSelf: targetId === p.id,
       targetAlive: !!target?.alive,
       aliveCount,
-      available: p.marblesEarned,
+      available,
       stake,
     });
     if (reason) {
       p.send?.({ t: "toast", text: reason, kind: "bad" });
       return;
     }
-    const finalStake = clampStake(stake, p.marblesEarned);
+    const finalStake = clampStake(stake, available);
     p.bet = { targetId, stake: finalStake, oddsAlive: aliveCount };
     const mult = betMultiplier(aliveCount);
     p.send?.({
@@ -356,7 +370,8 @@ export class GameRoom {
     this.markDirty();
   }
 
-  // Pay out / collect every wager once the champion is known (hardcore only).
+  // Pay out / collect every wager once the champion is known. Settles both the
+  // eliminated-player Dead Pool (hardcore) and any spectator's gallery wager.
   private settleBets(championId: string | null): void {
     const winners: string[] = [];
     for (const p of this.players.values()) {
@@ -364,7 +379,9 @@ export class GameRoom {
       const delta = settleBet(p.bet, championId);
       const won = delta > 0;
       const tgt = this.players.get(p.bet.targetId);
-      p.marblesEarned = Math.max(0, p.marblesEarned + delta);
+      // Spectators settle into their real-bank bankroll; players into series earnings.
+      if (p.isSpectator) p.bankroll = Math.max(0, p.bankroll + delta);
+      else p.marblesEarned = Math.max(0, p.marblesEarned + delta);
       if (won && !p.isBot) winners.push(`${p.name} (+${delta} ${CURRENCY_ICON})`);
       if (!p.isBot) {
         p.send?.({
@@ -382,28 +399,58 @@ export class GameRoom {
     }
   }
 
+  // Everyone actually in the running — spectators sit out, so they never count
+  // toward the field, the start threshold, or bot-fill.
+  private competitors(): Player[] {
+    return [...this.players.values()].filter((p) => !p.isSpectator);
+  }
+
   // ---- series flow ----
   private startSeries(): void {
-    // bot fill
+    // bot fill — measured against the playing field, not spectators, so a room
+    // full of gallery-goers still gets enough bots to make a proper massacre.
     if (this.config.botFill) {
-      while (this.players.size < BOT_FILL_TARGET && this.players.size < this.config.maxPlayers) {
+      while (
+        this.competitors().length < BOT_FILL_TARGET &&
+        this.players.size < this.config.maxPlayers
+      ) {
         this.addBot();
       }
     }
-    const total = this.players.size;
-    if (total < MIN_TO_START) {
-      this.broadcast({ t: "toast", text: "A massacre needs at least 2 victims (enable bot fill!)", kind: "bad" });
+    if (this.competitors().length < MIN_TO_START) {
+      this.broadcast({
+        t: "toast",
+        text: "A massacre needs at least 2 contestants (enable bot fill, or send a spectator back into the arena!)",
+        kind: "bad",
+      });
       return;
     }
 
     // reset series state
     for (const p of this.players.values()) {
-      p.alive = true;
+      p.alive = !p.isSpectator; // spectators are never "in" the field
       p.marblesEarned = 0;
       p.points = 0;
       p.roundsSurvived = 0;
       p.title = undefined;
       p.bet = undefined;
+      p.bankroll = 0;
+      p.bankStart = 0;
+    }
+    // Stake the gallery: a spectator wagers their REAL saved Marbles, so seed each
+    // one's live bankroll from their persisted bank. Async (a DB read), but the
+    // intro/GO hold gives it ~8s of runway before betting can matter in round 1.
+    for (const p of this.players.values()) {
+      if (!p.isSpectator || p.isBot) continue;
+      getOrCreateProfile(p.clientId, p.name)
+        .then((profile) => {
+          // Ignore a stale resolve if they bailed or the series already ended.
+          if (this.players.get(p.id) !== p || this.phase === "lobby") return;
+          p.bankStart = profile.marbles;
+          p.bankroll = profile.marbles;
+          this.markDirty();
+        })
+        .catch(() => {});
     }
     this.roundIndex = 0;
     // Intentionally NOT clearing lastGame / recentGames here: they carry across
@@ -433,8 +480,10 @@ export class GameRoom {
   }
 
   private getParticipants(): Player[] {
+    // Spectators never take the field. alivePlayers() already excludes them
+    // (they hold alive=false all series); casual just drops them explicitly.
     if (this.config.mode === "hardcore") return this.alivePlayers();
-    return [...this.players.values()]; // casual: everyone plays every round
+    return this.competitors(); // casual: every contestant plays every round
   }
 
   // The round being set up is the last scheduled one — or beyond it, if we've
@@ -525,9 +574,9 @@ export class GameRoom {
 
   private beginIntro(): void {
     const participants = this.getParticipants();
-    // reset per-round alive for casual respawn / display
+    // reset per-round alive for casual respawn / display (spectators stay out)
     if (this.config.mode === "casual") {
-      for (const p of this.players.values()) p.alive = true;
+      for (const p of this.players.values()) p.alive = !p.isSpectator;
     }
     const game = this.chooseGame(participants.length);
     const mapId = this.chooseMap();
@@ -688,7 +737,8 @@ export class GameRoom {
   }
 
   private endSeries(): void {
-    const all = [...this.players.values()];
+    // Only contestants are ranked & crowned — spectators watched from the gallery.
+    const all = this.competitors();
     // ranking: alive first (hardcore), then rounds survived, points, marbles
     all.sort((a, b) => {
       if (this.config.mode === "hardcore" && a.alive !== b.alive) return a.alive ? -1 : 1;
@@ -697,12 +747,19 @@ export class GameRoom {
       return b.marblesEarned - a.marblesEarned;
     });
 
-    // Settle the Dead Pool FIRST, so bet winnings/losses fold into marblesEarned
-    // before the placement bonuses, the standings, and the DB persist all read it.
-    if (this.config.mode === "hardcore") {
-      const championId = all[0] && all[0].alive ? all[0].id : null;
-      this.settleBets(championId);
-    }
+    // The blob the bettors were chasing: the series winner. (Hardcore can in the
+    // freak total-wipe case crown nobody → every wager loses.)
+    const championId =
+      this.config.mode === "hardcore"
+        ? all[0] && all[0].alive
+          ? all[0].id
+          : null
+        : (all[0]?.id ?? null);
+    // Settle every wager FIRST, so eliminated players' winnings fold into
+    // marblesEarned before placement bonuses, and spectators' deltas are final
+    // before the persist below reads them. Spectators can bet in any mode, so this
+    // is no longer gated on Hardcore.
+    this.settleBets(championId);
 
     const standings: SeriesStanding[] = [];
     all.forEach((p, i) => {
@@ -742,10 +799,12 @@ export class GameRoom {
       );
     }
 
-    // persist humans
+    // persist humans — contestants bank what they earned; spectators bank only the
+    // SIGNED swing of their wagers (bankroll − bankStart), added to their saved
+    // total, so a winning gallery bet pays out for real and a losing one bites.
     const rewards: SeriesReward[] = all
       .filter((p) => !p.isBot)
-      .map((p, i) => {
+      .map((p) => {
         const placement = standings.find((s) => s.playerId === p.id)!.placement;
         return {
           clientId: p.clientId,
@@ -756,6 +815,18 @@ export class GameRoom {
           title: p.title ?? "Blob",
         };
       });
+    for (const p of this.players.values()) {
+      if (!p.isSpectator || p.isBot) continue;
+      rewards.push({
+        clientId: p.clientId,
+        name: p.name,
+        marbles: p.bankroll - p.bankStart, // net wager swing (may be negative)
+        won: false,
+        roundsSurvived: 0,
+        title: p.title ?? "Blob",
+        spectator: true,
+      });
+    }
     recordSeries(rewards).catch((e) => console.warn("[db] recordSeries failed", e));
 
     this.pushMeta();
@@ -770,13 +841,15 @@ export class GameRoom {
     this.lastResult = undefined;
     this.seriesResult = undefined;
     for (const p of this.players.values()) {
-      p.alive = true;
+      p.alive = !p.isSpectator;
       p.ready = p.isBot;
       p.marblesEarned = 0;
       p.points = 0;
       p.roundsSurvived = 0;
       p.title = undefined;
       p.bet = undefined;
+      p.bankroll = 0;
+      p.bankStart = 0;
     }
     this.pushMeta();
   }

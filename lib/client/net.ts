@@ -291,6 +291,10 @@ class Net {
     localStorage.setItem(LS.acc, JSON.stringify(accessories));
     this.send({ t: "setAccessories", accessories });
   }
+  // Sit the series out to watch & bet (lobby only).
+  setSpectate(on: boolean) {
+    this.send({ t: "setSpectate", on });
+  }
   // Dead Pool: wager `stake` series-Marbles that `targetId` wins it all.
   placeBet(targetId: string, stake: number) {
     this.send({ t: "placeBet", targetId, stake });

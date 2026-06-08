@@ -169,7 +169,9 @@ function PlayingView() {
   const deathAtRef = useRef<Map<string, number>>(new Map());
   const lastAnnounceRef = useRef(0);
   const playing = room?.phase === "playing";
-  const myNumber = room?.players.find((p) => p.id === youId)?.number;
+  const me = room?.players.find((p) => p.id === youId);
+  const myNumber = me?.number;
+  const iSpectate = !!me?.isSpectator;
 
   // keep a fast playerId -> Squid Game number lookup for the canvas loop
   useEffect(() => {
@@ -348,6 +350,7 @@ function PlayingView() {
         <div className="hud-pill">
           🩸 <strong>{hud.alive}</strong> left
         </div>
+        {iSpectate && <div className="hud-pill spectating">👁 Spectating</div>}
         <FeedbackButton variant="hud" />
         <MuteButton />
       </div>
@@ -358,10 +361,15 @@ function PlayingView() {
 
       {showElim && playing && <EliminatedOverlay number={myNumber} />}
 
-      {hud.youDown && playing && !showElim && <SpectatorChat number={myNumber} />}
+      {hud.youDown && playing && !showElim && (
+        <SpectatorChat number={myNumber} spectator={iSpectate} />
+      )}
 
-      {/* Dead Pool: eliminated Hardcore spectators wager on who wins it all */}
-      {hud.youDown && playing && !showElim && room?.config.mode === "hardcore" && <DeadPool />}
+      {/* The betting window: gallery spectators (any mode) + eliminated Hardcore
+          players both wager on who wins it all. */}
+      {playing && !showElim && (iSpectate || (hud.youDown && room?.config.mode === "hardcore")) && (
+        <DeadPool />
+      )}
 
       {playing && hud.game && !hud.youDown && (
         <GameControls game={hud.game} />
@@ -408,22 +416,32 @@ function PlayingView() {
           color: var(--yellow);
           font-size: 1.2rem;
         }
+        .hud-pill.spectating {
+          color: var(--teal);
+          border-color: var(--teal);
+          font-weight: 800;
+        }
       `}</style>
     </div>
   );
 }
 
 // Once you're out, the lobby chat follows you into the match. A dock in the
-// corner so the eliminated can read along and heckle the living (and each other)
-// from the great beyond — the same broadcast chat as the lobby, so anything said
-// here is waiting in the log when survivors return. pointer-events:auto so typing
-// works over the canvas; only shown to spectators (hud.youDown), never mid-play.
-function SpectatorChat({ number }: { number?: number }) {
+// corner so the sidelined can read along and heckle the living (and each other) —
+// the same broadcast chat as the lobby, so anything said here is waiting in the
+// log when survivors return. pointer-events:auto so typing works over the canvas.
+// Shown to the eliminated AND to gallery spectators (both are hud.youDown); the
+// header differs so a watcher isn't told they were "eliminated".
+function SpectatorChat({ number, spectator }: { number?: number; spectator?: boolean }) {
   return (
     <ChatDock
-      title={`💀 Player ${formatPlayerNumber(number)} eliminated — heckle from the great beyond…`}
+      title={
+        spectator
+          ? "👁 Watching from the gallery — heckle the living…"
+          : `💀 Player ${formatPlayerNumber(number)} eliminated — heckle from the great beyond…`
+      }
       collapsedLabel="Heckle"
-      accent="var(--red)"
+      accent={spectator ? "var(--teal)" : "var(--red)"}
       side="right"
       defaultOpen
     />

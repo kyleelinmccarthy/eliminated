@@ -209,6 +209,30 @@ export default function HowToPlay() {
           </ul>
         </div>
 
+        <div className="panel htp-section">
+          <h3>👁 The Gallery (spectate &amp; bet)</h3>
+          <p className="dim tiny">
+            Don't feel like dying today? In the lobby, hit <strong>“Spectate &amp; bet instead”</strong> to sit the whole
+            run out. You never take the field and you never get culled — you just watch the little blobs suffer, and
+            wager on the carnage from the comfort of <strong>The Gallery</strong>.
+          </p>
+          <ul className="dim tiny" style={{ margin: "8px 0 0", paddingLeft: 20, lineHeight: 1.6 }}>
+            <li>
+              <strong>You bet your real bank.</strong> Unlike the Dead Pool's afterlife chips, spectators stake the{" "}
+              {CURRENCY} {CURRENCY_ICON} they've actually saved. Back the champion and pocket the winnings; back a loser
+              and they're gone for good.
+            </li>
+            <li>
+              <strong>Open in both modes.</strong> Casual or Hardcore, the Gallery is always taking bets — same{" "}
+              field-scaling odds as the Dead Pool, settled the instant a champion is crowned.
+            </li>
+            <li>
+              <strong>You don't hold up the show.</strong> Spectators don't count toward starting a match — a whole room
+              of watchers can still kick off, as long as there are enough contestants (or bot-fill is on) to fight.
+            </li>
+          </ul>
+        </div>
+
         <div style={{ textAlign: "center", marginTop: 24 }}>
           <Link
             className="btn pink big"

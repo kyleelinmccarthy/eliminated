@@ -13,6 +13,9 @@ export class Player {
   isBot: boolean;
   isHost = false;
   connected = true;
+  // Sat out the series on purpose — never plays, never culled, just watches and
+  // bets. Toggled in the lobby; bots are never spectators.
+  isSpectator = false;
 
   // series state
   alive = true;
@@ -21,7 +24,13 @@ export class Player {
   roundsSurvived = 0;
   title?: string;
   emote?: { kind: string; at: number };
-  bet?: Bet; // Dead Pool wager (hardcore, once eliminated)
+  bet?: Bet; // Dead Pool wager (eliminated players, hardcore — or any spectator)
+  // Spectator betting balance: seeded from the player's real saved Marbles at
+  // series start (bankStart), wagered through the Dead Pool, and reconciled back
+  // to the bank as a signed delta (bankroll − bankStart) at series end. Players
+  // (non-spectators) ignore these — they stake marblesEarned instead.
+  bankroll = 0;
+  bankStart = 0;
 
   // transport (undefined for bots / disconnected)
   send?: (msg: ServerMessage) => void;
@@ -53,8 +62,10 @@ export class Player {
       isBot: this.isBot,
       isHost: this.isHost,
       connected: this.connected,
+      isSpectator: this.isSpectator,
       alive: this.alive,
       marblesEarned: this.marblesEarned,
+      bankroll: this.isSpectator ? this.bankroll : undefined,
       points: this.points,
       title: this.title,
       emote: this.emote,
