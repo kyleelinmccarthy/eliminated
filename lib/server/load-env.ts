@@ -17,6 +17,15 @@
 // loader Next uses, so both contexts read identical values. loadEnvConfig does
 // not override variables already present in process.env, so Railway-injected
 // production vars still win.
-import { loadEnvConfig } from "@next/env";
+//
+// @next/env is a CommonJS package and this project is "type": "module", so a
+// static `import { loadEnvConfig }` makes Node's ESM loader try to detect named
+// exports via cjs-module-lexer — which fails in some prod Node runtimes
+// ("does not provide an export named 'loadEnvConfig'"). createRequire loads the
+// CJS module directly, sidestepping named-export detection entirely.
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { loadEnvConfig } = require("@next/env") as typeof import("@next/env");
 
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== "production");
